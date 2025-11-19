@@ -62,11 +62,11 @@
                                    id="sdaPin"
                                    name="sda_pin"
                                    class="form-input"
-                                   value="21"
+                                   value="4"
                                    min="0"
                                    max="39"
                                    required>
-                            <small style="color: var(--text-light);">GPIO para SDA (padrão: 21)</small>
+                            <small style="color: var(--text-light);">GPIO para SDA (padrão: 4)</small>
                         </div>
 
                         <div class="form-group">
@@ -75,11 +75,11 @@
                                    id="sclPin"
                                    name="scl_pin"
                                    class="form-input"
-                                   value="22"
+                                   value="15"
                                    min="0"
                                    max="39"
                                    required>
-                            <small style="color: var(--text-light);">GPIO para SCL (padrão: 22)</small>
+                            <small style="color: var(--text-light);">GPIO para SCL (padrão: 15)</small>
                         </div>
 
                         <div class="form-group">
@@ -88,10 +88,10 @@
                                    id="rstPin"
                                    name="rst_pin"
                                    class="form-input"
-                                   value="-1"
+                                   value="16"
                                    min="-1"
                                    max="39">
-                            <small style="color: var(--text-light);">GPIO para RST (-1 = sem reset)</small>
+                            <small style="color: var(--text-light);">GPIO para RST (padrão: 16)</small>
                         </div>
                     </div>
 
@@ -159,6 +159,7 @@
                         <option value="3">Informações de Rede</option>
                         <option value="4">Status MQTT</option>
                         <option value="5">Texto Personalizado</option>
+                        <option value="6">Sensor SHT20</option>
                     </select>
                 </div>
 

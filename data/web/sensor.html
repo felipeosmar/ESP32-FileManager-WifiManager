@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sensor SHT20 - ESP32</title>
+    <link rel="stylesheet" href="unified.css">
+</head>
+<body>
+    <div class="container">
+        <div id="header-placeholder"></div>
+
+        <main>
+            <!-- Status Section -->
+            <section class="status-section">
+                <div class="status-card" id="sensorStatusCard">
+                    <div class="status-icon" id="sensorStatusIcon">🌡️</div>
+                    <div class="status-info">
+                        <h2>Status do Sensor</h2>
+                        <div class="status-value" id="sensorStatus">Verificando...</div>
+                        <div class="uptime" id="sensorStatusDetail">Aguarde...</div>
+                    </div>
+                    <div class="refresh-btn" onclick="checkSensorStatus()">
+                        <span class="refresh-icon">🔄</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Live Readings Section -->
+            <section class="info-section">
+                <h2>📊 Leituras ao Vivo</h2>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <!-- Temperature Card -->
+                    <div class="status-card healthy">
+                        <div class="status-icon">🌡️</div>
+                        <div class="status-info">
+                            <h2>Temperatura</h2>
+                            <div class="status-value" id="temperatureValue">--</div>
+                            <div class="uptime" id="temperatureUnit">°C</div>
+                        </div>
+                    </div>
+
+                    <!-- Humidity Card -->
+                    <div class="status-card healthy">
+                        <div class="status-icon">💧</div>
+                        <div class="status-info">
+                            <h2>Umidade</h2>
+                            <div class="status-value" id="humidityValue">--</div>
+                            <div class="uptime">%</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 15px; padding: 10px; background: var(--card-bg); border-radius: 8px;">
+                    <small style="color: var(--text-light);">
+                        Última atualização: <span id="lastUpdate">Nunca</span>
+                    </small>
+                </div>
+            </section>
+
+            <!-- Configuration Section -->
+            <section class="info-section">
+                <h2>⚙️ Configuração do Sensor SHT20</h2>
+
+                <form id="sensorConfigForm">
+                    <!-- Enable/Disable Sensor -->
+                    <div class="toggle-container" style="margin-bottom: 20px;">
+                        <div style="flex: 1;">
+                            <div class="toggle-label">Habilitar Sensor</div>
+                            <div class="toggle-info">Ativar ou desativar o sensor de temperatura e umidade</div>
+                        </div>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="sensorEnabled" name="enabled">
+                            <label for="sensorEnabled">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Read Interval -->
+                    <div class="form-group">
+                        <label for="readInterval">Intervalo de Leitura (segundos)</label>
+                        <input type="number"
+                               id="readInterval"
+                               name="read_interval"
+                               class="form-input"
+                               value="180"
+                               min="5"
+                               max="3600"
+                               required>
+                        <small style="color: var(--text-light);">
+                            Tempo entre leituras automáticas do sensor (5-3600 segundos, padrão: 180)
+                        </small>
+                    </div>
+
+                    <!-- Temperature Unit -->
+                    <div class="toggle-container" style="margin-bottom: 20px;">
+                        <div style="flex: 1;">
+                            <div class="toggle-label">Fahrenheit</div>
+                            <div class="toggle-info">Exibir temperatura em Fahrenheit (desligado = Celsius)</div>
+                        </div>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="fahrenheit" name="fahrenheit">
+                            <label for="fahrenheit">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button type="submit" class="btn btn-primary" style="flex: 1;">
+                            💾 Salvar Configuração
+                        </button>
+                        <button type="button" class="btn btn-success" onclick="forceRead()" style="flex: 1;">
+                            🔄 Ler Agora
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Info Section -->
+            <section class="info-section">
+                <h2>ℹ️ Informações</h2>
+                <div class="info-box">
+                    <p><strong>Sobre o Sensor SHT20:</strong></p>
+                    <ul>
+                        <li>Sensor digital I2C de temperatura e umidade</li>
+                        <li>Endereço I2C: 0x40 (fixo)</li>
+                        <li>Faixa de temperatura: -40°C a +125°C</li>
+                        <li>Faixa de umidade: 0% a 100% RH</li>
+                        <li>Precisão: ±0.3°C para temperatura, ±2% RH para umidade</li>
+                        <li>Resolução: 14 bits para temperatura, 12 bits para umidade</li>
+                    </ul>
+                    <p><strong>Conexão I2C:</strong></p>
+                    <ul>
+                        <li>Usa os mesmos pinos I2C do display OLED</li>
+                        <li>Conecte VCC ao 3.3V do ESP32</li>
+                        <li>Conecte GND ao GND do ESP32</li>
+                        <li>Conecte SDA ao mesmo pino do display (configurado em Display OLED)</li>
+                        <li>Conecte SCL ao mesmo pino do display (configurado em Display OLED)</li>
+                    </ul>
+                    <p><strong>Recursos:</strong></p>
+                    <ul>
+                        <li>Leituras automáticas em intervalo configurável</li>
+                        <li>Verificação CRC para integridade dos dados</li>
+                        <li>Suporte para Celsius e Fahrenheit</li>
+                        <li>Soft reset do sensor em caso de falha</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Error Section -->
+            <section class="error-section" id="errorSection" style="display: none;">
+                <div class="error-banner" id="errorBanner">
+                    <span class="error-icon">❌</span>
+                    <span class="error-message" id="errorMessage"></span>
+                    <button class="error-close" onclick="closeError()">×</button>
+                </div>
+            </section>
+
+            <!-- Success Section -->
+            <section class="success-section" id="successSection" style="display: none;">
+                <div class="success-card">
+                    <div class="success-icon">✅</div>
+                    <div class="success-content">
+                        <h3>Sucesso!</h3>
+                        <p id="successMessage"></p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>ESP32 SHT20 Sensor Manager v1.0</p>
+        </footer>
+    </div>
+
+    <script src="header.js"></script>
+    <script>
+        loadHeader('🌡️ Sensor SHT20');
+    </script>
+    <script src="sensor.js"></script>
+</body>
+</html>

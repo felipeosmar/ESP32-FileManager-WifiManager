@@ -26,12 +26,14 @@
 #include "spiffs_manager.h"
 #include "mqtt_manager.h"
 #include "oled_manager.h"
+#include "sht20_manager.h"
 
 // Global objects
 AsyncWebServer server(80);
 SPIFFSManager spiffsManager;
 MQTTManager mqttManager;
 OLEDManager oledManager;
+SHT20Manager sht20Manager;
 
 // Mutex for SPIFFS access (prevents concurrent access issues)
 SemaphoreHandle_t spiffsMutex = NULL;
@@ -86,6 +88,13 @@ void setup() {
     setDefaultConfig();
   }
 
+  // Initialize I2C bus FIRST, before any I2C device initialization
+  // Both OLED and SHT20 share the same I2C bus (SDA=4, SCL=15)
+  // CRITICAL: This must be done BEFORE creating/initializing I2C devices
+  Wire.begin(4, 15);
+  Wire.setClock(100000);  // Set I2C clock to 100kHz (standard mode)
+  Serial.println("I2C: Initialized (SDA=4, SCL=15, 100kHz)");
+
   // Setup WiFi
   setupWiFi();
 
@@ -99,8 +108,13 @@ void setup() {
     // Show logo on startup
     oledManager.showLogo();
     delay(2000);
-    // Switch to system info after delay
-    oledManager.setMode(OLEDManager::MODE_SYSTEM_INFO);
+    // Switch to sensor info after delay
+    oledManager.setMode(OLEDManager::MODE_SENSOR_INFO);
+  }
+
+  // Setup SHT20 Sensor (uses same I2C bus as OLED)
+  if (sht20Manager.begin(&Wire)) {
+    Serial.println("SHT20 sensor ready");
   }
 
   // Setup web server
@@ -133,8 +147,17 @@ void loop() {
       oledManager.showMQTTInfo(mqttManager.isConnected(),
                                mqttCfg.server,
                                mqttCfg.mainTopic);
+    } else if (oledManager.getMode() == OLEDManager::MODE_SENSOR_INFO) {
+      const SHT20Manager::SHT20Config& sensorCfg = sht20Manager.getConfig();
+      oledManager.showSensorInfo(sht20Manager.isAvailable(),
+                                  sht20Manager.getTemperature(),
+                                  sht20Manager.getHumidity(),
+                                  sensorCfg.fahrenheit);
     }
   }
+
+  // SHT20 sensor update
+  sht20Manager.update();
 
   // Small delay to prevent watchdog issues
   delay(10);
@@ -1144,6 +1167,23 @@ void setupWebServer() {
     serveStaticFile(request, "/web/display.js", "application/javascript");
   });
 
+  // SHT20 Sensor page
+  server.on("/sensor", HTTP_GET, [](AsyncWebServerRequest *request) {
+    validateOTABoot();
+    if (spiffsManager.isReady()) {
+      request->send(LittleFS, "/web/sensor.html", "text/html");
+    } else {
+      request->send(503, "text/html",
+        "<html><body><h1>Sensor Manager unavailable</h1>"
+        "<p>SPIFFS is required for Sensor Manager functionality.</p>"
+        "<a href='/'>Back to Home</a></body></html>");
+    }
+  });
+
+  server.on("/sensor.js", HTTP_GET, [](AsyncWebServerRequest *request) {
+    serveStaticFile(request, "/web/sensor.js", "application/javascript");
+  });
+
   // OLED Display Status API
   server.on("/api/display/status", HTTP_GET, [](AsyncWebServerRequest *request) {
     JsonDocument doc;
@@ -1302,12 +1342,123 @@ void setupWebServer() {
               oledManager.showCustomText(line1, line2, line3, line4);
             }
             break;
+          case 6: // SENSOR_INFO
+            {
+              const SHT20Manager::SHT20Config& sensorCfg = sht20Manager.getConfig();
+              oledManager.setMode(OLEDManager::MODE_SENSOR_INFO);
+              oledManager.showSensorInfo(sht20Manager.isAvailable(),
+                                          sht20Manager.getTemperature(),
+                                          sht20Manager.getHumidity(),
+                                          sensorCfg.fahrenheit);
+            }
+            break;
           default:
             request->send(400, "application/json", "{\"error\":\"Invalid mode\"}");
             return;
         }
 
         request->send(200, "application/json", "{\"status\":\"ok\"}");
+      }
+    }
+  );
+
+  // SHT20 Sensor Status API
+  server.on("/api/sensor/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+    JsonDocument doc;
+
+    const SHT20Manager::SHT20Config& cfg = sht20Manager.getConfig();
+    const SHT20Manager::SHT20Data& data = sht20Manager.getData();
+
+    doc["enabled"] = cfg.enabled;
+    doc["available"] = sht20Manager.isAvailable();
+    doc["valid"] = data.valid;
+
+    if (data.valid) {
+      doc["temperature"] = sht20Manager.getTemperature();
+      doc["temperature_f"] = sht20Manager.getTemperatureFahrenheit();
+      doc["humidity"] = sht20Manager.getHumidity();
+      doc["timestamp"] = data.timestamp;
+      doc["fahrenheit"] = cfg.fahrenheit;
+    }
+
+    if (!sht20Manager.isAvailable()) {
+      doc["error"] = sht20Manager.getLastError().c_str();
+    }
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // SHT20 Sensor Config GET API
+  server.on("/api/sensor/config", HTTP_GET, [](AsyncWebServerRequest *request) {
+    JsonDocument doc;
+
+    const SHT20Manager::SHT20Config& cfg = sht20Manager.getConfig();
+
+    doc["enabled"] = cfg.enabled;
+    doc["read_interval"] = cfg.read_interval;
+    doc["fahrenheit"] = cfg.fahrenheit;
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // SHT20 Sensor Config POST API
+  server.on("/api/sensor/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
+    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+      if (index == 0) {
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, data, len);
+
+        if (error) {
+          request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+          return;
+        }
+
+        bool enabled = doc["enabled"] | false;
+        uint16_t interval = doc["read_interval"] | 60;
+        bool fahrenheit = doc["fahrenheit"] | false;
+
+        // Validation
+        if (interval < 5 || interval > 3600) {
+          request->send(400, "application/json", "{\"error\":\"Read interval must be between 5 and 3600 seconds\"}");
+          return;
+        }
+
+        sht20Manager.updateConfig(enabled, interval, fahrenheit);
+
+        // Save to config.json
+        if (xSemaphoreTake(spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
+          File configFile = LittleFS.open("/config.json", "r");
+          JsonDocument configDoc;
+
+          if (configFile) {
+            deserializeJson(configDoc, configFile);
+            configFile.close();
+          }
+
+          // Save SHT20 config to JSON
+          sht20Manager.saveConfig(configDoc);
+
+          // Write back to file
+          configFile = LittleFS.open("/config.json", "w");
+          if (configFile) {
+            serializeJson(configDoc, configFile);
+            configFile.close();
+
+            Serial.println("SHT20 configuration saved to file");
+
+            request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
+          } else {
+            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
+          }
+
+          xSemaphoreGive(spiffsMutex);
+        } else {
+          request->send(503, "application/json", "{\"error\":\"System busy\"}");
+        }
       }
     }
   );
@@ -1349,6 +1500,9 @@ bool loadConfig() {
 
   // Load OLED configuration
   oledManager.loadConfig(doc);
+
+  // Load SHT20 configuration
+  sht20Manager.loadConfig(doc);
 
   Serial.println("Configuration loaded from SPIFFS");
   return true;

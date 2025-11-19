@@ -13,6 +13,10 @@ function loadHeader(pageTitle) {
                 }
                 // Initialize connection status
                 initConnectionStatus();
+                // Initialize sidebar
+                initSidebar();
+                // Set active menu item
+                setActiveMenuItem();
             }
         })
         .catch(error => console.error('Error loading header:', error));
@@ -50,4 +54,60 @@ function initConnectionStatus() {
                 });
         }, 5000);
     }
+}
+
+// Initialize sidebar functionality
+function initSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const sidebarClose = document.getElementById('sidebar-close');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+    if (!sidebar || !sidebarToggle || !sidebarClose || !sidebarOverlay) {
+        return;
+    }
+
+    // Toggle sidebar
+    sidebarToggle.addEventListener('click', () => {
+        sidebar.classList.add('open');
+        sidebarOverlay.classList.add('show');
+    });
+
+    // Close sidebar
+    const closeSidebar = () => {
+        sidebar.classList.remove('open');
+        sidebarOverlay.classList.remove('show');
+    };
+
+    sidebarClose.addEventListener('click', closeSidebar);
+    sidebarOverlay.addEventListener('click', closeSidebar);
+
+    // Close sidebar when clicking on a link (mobile)
+    const sidebarLinks = sidebar.querySelectorAll('.sidebar-link');
+    sidebarLinks.forEach(link => {
+        link.addEventListener('click', () => {
+            if (window.innerWidth <= 768) {
+                closeSidebar();
+            }
+        });
+    });
+}
+
+// Set active menu item based on current page
+function setActiveMenuItem() {
+    const currentPath = window.location.pathname;
+    const sidebarLinks = document.querySelectorAll('.sidebar-link');
+
+    sidebarLinks.forEach(link => {
+        const linkPath = new URL(link.href).pathname;
+
+        // Handle root path
+        if (currentPath === '/' && linkPath === '/') {
+            link.classList.add('active');
+        } else if (currentPath !== '/' && linkPath !== '/' && currentPath.startsWith(linkPath)) {
+            link.classList.add('active');
+        } else {
+            link.classList.remove('active');
+        }
+    });
 }

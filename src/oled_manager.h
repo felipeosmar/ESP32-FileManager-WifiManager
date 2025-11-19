@@ -40,7 +40,8 @@ public:
         MODE_SYSTEM_INFO,
         MODE_NETWORK_INFO,
         MODE_MQTT_INFO,
-        MODE_CUSTOM_TEXT
+        MODE_CUSTOM_TEXT,
+        MODE_SENSOR_INFO
     };
 
     // Initialize display
@@ -76,6 +77,7 @@ public:
     void showMQTTInfo(bool connected, const char* server, const char* topic);
     void showCustomText(const char* line1, const char* line2 = nullptr,
                        const char* line3 = nullptr, const char* line4 = nullptr);
+    void showSensorInfo(bool available, float temperature, float humidity, bool fahrenheit);
 
     // Auto update (call in loop)
     void update();
@@ -88,7 +90,7 @@ public:
     String getLastError() const { return lastError; }
 
 private:
-    Adafruit_SSD1306 display;
+    Adafruit_SSD1306* display;  // Changed to pointer to defer initialization
     OLEDConfig config;
     bool displayAvailable;
     DisplayMode currentMode;

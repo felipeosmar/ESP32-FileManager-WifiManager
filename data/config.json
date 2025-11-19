@@ -3,5 +3,20 @@
     "ssid": "Escalador",
     "password": "Escalador@123",
     "ap_mode": false
+  },
+  "oled": {
+    "enabled": true,
+    "address": 60,
+    "sda_pin": 4,
+    "scl_pin": 15,
+    "rst_pin": 16,
+    "auto_update": true,
+    "brightness": 128,
+    "flip_display": false
+  },
+  "sht20": {
+    "enabled": true,
+    "read_interval": 180,
+    "fahrenheit": false
   }
 }

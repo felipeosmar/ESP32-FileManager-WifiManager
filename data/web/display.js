@@ -37,11 +37,11 @@ async function loadDisplayConfig() {
         displayConfig = data;
 
         // Populate form
-        document.getElementById('displayEnabled').checked = data.enabled || false;
+        document.getElementById('displayEnabled').checked = data.enabled !== undefined ? data.enabled : true;
         document.getElementById('displayAddress').value = data.address || 60;
-        document.getElementById('sdaPin').value = data.sda_pin || 21;
-        document.getElementById('sclPin').value = data.scl_pin || 22;
-        document.getElementById('rstPin').value = data.rst_pin !== undefined ? data.rst_pin : -1;
+        document.getElementById('sdaPin').value = data.sda_pin !== undefined ? data.sda_pin : 4;
+        document.getElementById('sclPin').value = data.scl_pin !== undefined ? data.scl_pin : 15;
+        document.getElementById('rstPin').value = data.rst_pin !== undefined ? data.rst_pin : 16;
         document.getElementById('autoUpdate').checked = data.auto_update !== false;
         document.getElementById('brightness').value = data.brightness || 128;
         document.getElementById('flipDisplay').checked = data.flip_display || false;
@@ -80,7 +80,7 @@ async function checkDisplayStatus() {
             statusCard.className = 'status-card healthy';
             statusIcon.textContent = '✅';
             statusValue.textContent = 'Conectado';
-            const modeNames = ['Desligado', 'Logo', 'Sistema', 'Rede', 'MQTT', 'Texto'];
+            const modeNames = ['Desligado', 'Logo', 'Sistema', 'Rede', 'MQTT', 'Texto', 'Sensor'];
             statusDetail.textContent = `Endereço: 0x${data.address.toString(16).toUpperCase()} | Modo: ${modeNames[data.mode] || 'Desconhecido'}`;
         } else {
             statusCard.className = 'status-card degraded';
@@ -197,7 +197,7 @@ async function applyDisplayMode() {
 
         const result = await response.json();
 
-        const modeNames = ['desligado', 'logo', 'sistema', 'rede', 'MQTT', 'texto personalizado'];
+        const modeNames = ['desligado', 'logo', 'sistema', 'rede', 'MQTT', 'texto personalizado', 'sensor SHT20'];
         showSuccess(`Modo "${modeNames[mode]}" aplicado com sucesso!`);
 
         // Update status

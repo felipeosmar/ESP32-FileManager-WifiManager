@@ -1,4 +1,5 @@
 <header>
+    <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle Menu">☰</button>
     <h1 id="page-title">📁 ESP32 File Manager</h1>
     <div class="header-right">
         <div class="status-bar">
@@ -7,12 +8,47 @@
                 <span id="status-text">Conectando...</span>
             </span>
         </div>
-        <a href="/" class="nav-btn">🏠 Principal</a>
-        <a href="/wifi" class="nav-btn">📶 WiFi</a>
-        <a href="/mqtt" class="nav-btn">📡 MQTT</a>
-        <a href="/display" class="nav-btn">📺 Display</a>
-        <a href="/health" class="nav-btn">🏥 Saúde</a>
-        <a href="/firmware" class="nav-btn">🚀 Firmware</a>
-        <a href="/filemanager" class="nav-btn">📁 Arquivos</a>
     </div>
 </header>
+
+<nav class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <h2>Menu</h2>
+        <button class="sidebar-close" id="sidebar-close" aria-label="Fechar Menu">×</button>
+    </div>
+    <ul class="sidebar-menu">
+        <li><a href="/" class="sidebar-link" data-page="home">
+            <span class="link-icon">🏠</span>
+            <span class="link-text">Principal</span>
+        </a></li>
+        <li><a href="/wifi" class="sidebar-link" data-page="wifi">
+            <span class="link-icon">📶</span>
+            <span class="link-text">WiFi</span>
+        </a></li>
+        <li><a href="/mqtt" class="sidebar-link" data-page="mqtt">
+            <span class="link-icon">📡</span>
+            <span class="link-text">MQTT</span>
+        </a></li>
+        <li><a href="/display" class="sidebar-link" data-page="display">
+            <span class="link-icon">📺</span>
+            <span class="link-text">Display</span>
+        </a></li>
+        <li><a href="/sensor" class="sidebar-link" data-page="sensor">
+            <span class="link-icon">🌡️</span>
+            <span class="link-text">Sensor</span>
+        </a></li>
+        <li><a href="/health" class="sidebar-link" data-page="health">
+            <span class="link-icon">🏥</span>
+            <span class="link-text">Saúde</span>
+        </a></li>
+        <li><a href="/firmware" class="sidebar-link" data-page="firmware">
+            <span class="link-icon">🚀</span>
+            <span class="link-text">Firmware</span>
+        </a></li>
+        <li><a href="/filemanager" class="sidebar-link" data-page="filemanager">
+            <span class="link-icon">📁</span>
+            <span class="link-text">Arquivos</span>
+        </a></li>
+    </ul>
+</nav>
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
