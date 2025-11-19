@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 System Health</title>
+    <link rel="stylesheet" href="health.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏥 ESP32 System Health</h1>
+            <div class="header-right">
+                <div class="status-indicator">
+                    <span class="status-dot" id="overall-status"></span>
+                    <span id="status-text">Carregando...</span>
+                </div>
+                <a href="/" class="back-btn">🏠 Principal</a>
+                <a href="/firmware" class="back-btn">🚀 Firmware</a>
+                <a href="/filemanager" class="back-btn">📁 Arquivos</a>
+            </div>
+        </header>
+
+        <main>
+            <!-- Overall Status -->
+            <section class="status-section">
+                <div class="status-card" id="status-card">
+                    <div class="status-icon">⚡</div>
+                    <div class="status-info">
+                        <h2>Status Geral</h2>
+                        <p class="status-value" id="overall-status-text">Verificando...</p>
+                        <p class="uptime" id="uptime">Uptime: --</p>
+                    </div>
+                    <div class="refresh-btn" onclick="refreshHealth()">
+                        <span class="refresh-icon">🔄</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Memory Section -->
+            <section class="info-section">
+                <h2>💾 Memória</h2>
+                <div class="cards-grid">
+                    <div class="metric-card">
+                        <h3>Heap Memory</h3>
+                        <div class="metric-value" id="heap-usage">--</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="heap-progress"></div>
+                        </div>
+                        <div class="metric-details">
+                            <span>Usado: <strong id="heap-used">--</strong></span>
+                            <span>Livre: <strong id="heap-free">--</strong></span>
+                            <span>Total: <strong id="heap-total">--</strong></span>
+                        </div>
+                    </div>
+
+                    <div class="metric-card">
+                        <h3>PSRAM</h3>
+                        <div class="metric-value" id="psram-usage">--</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="psram-progress"></div>
+                        </div>
+                        <div class="metric-details">
+                            <span>Usado: <strong id="psram-used">--</strong></span>
+                            <span>Livre: <strong id="psram-free">--</strong></span>
+                            <span>Total: <strong id="psram-total">--</strong></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- WiFi Section -->
+            <section class="info-section">
+                <h2>📶 WiFi</h2>
+                <div class="cards-grid">
+                    <div class="info-card">
+                        <div class="info-icon">📡</div>
+                        <div class="info-content">
+                            <span class="info-label">SSID</span>
+                            <span class="info-value" id="wifi-ssid">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">📊</div>
+                        <div class="info-content">
+                            <span class="info-label">Sinal</span>
+                            <span class="info-value" id="wifi-signal">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">🌐</div>
+                        <div class="info-content">
+                            <span class="info-label">IP Address</span>
+                            <span class="info-value" id="wifi-ip">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">🔢</div>
+                        <div class="info-content">
+                            <span class="info-label">MAC Address</span>
+                            <span class="info-value" id="wifi-mac">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">📻</div>
+                        <div class="info-content">
+                            <span class="info-label">Canal</span>
+                            <span class="info-value" id="wifi-channel">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">📈</div>
+                        <div class="info-content">
+                            <span class="info-label">RSSI</span>
+                            <span class="info-value" id="wifi-rssi">--</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SD Card Section -->
+            <section class="info-section">
+                <h2>💿 Cartão SD</h2>
+                <div class="cards-grid">
+                    <div class="metric-card wide">
+                        <h3>Armazenamento</h3>
+                        <div class="metric-value" id="sd-usage">--</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="sd-progress"></div>
+                        </div>
+                        <div class="metric-details">
+                            <span>Usado: <strong id="sd-used">--</strong></span>
+                            <span>Livre: <strong id="sd-free">--</strong></span>
+                            <span>Total: <strong id="sd-total">--</strong></span>
+                            <span>Tipo: <strong id="sd-type">--</strong></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CPU & Flash Section -->
+            <section class="info-section">
+                <h2>⚙️ Hardware</h2>
+                <div class="cards-grid">
+                    <div class="info-card">
+                        <div class="info-icon">🖥️</div>
+                        <div class="info-content">
+                            <span class="info-label">Chip Model</span>
+                            <span class="info-value" id="cpu-model">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">🔧</div>
+                        <div class="info-content">
+                            <span class="info-label">Revisão</span>
+                            <span class="info-value" id="cpu-revision">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">⚡</div>
+                        <div class="info-content">
+                            <span class="info-label">Frequência CPU</span>
+                            <span class="info-value" id="cpu-freq">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">🧮</div>
+                        <div class="info-content">
+                            <span class="info-label">Cores</span>
+                            <span class="info-value" id="cpu-cores">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">💽</div>
+                        <div class="info-content">
+                            <span class="info-label">Flash Size</span>
+                            <span class="info-value" id="flash-size">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">⚙️</div>
+                        <div class="info-content">
+                            <span class="info-label">SDK Version</span>
+                            <span class="info-value" id="sdk-version">--</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Auto Refresh Toggle -->
+            <section class="controls-section">
+                <div class="control-card">
+                    <div class="toggle-container">
+                        <span class="toggle-label">Atualização Automática</span>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="auto-refresh" checked>
+                            <label for="auto-refresh">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <span class="toggle-info">A cada 5 segundos</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>ESP32 System Health Monitor v1.0 | Última atualização: <span id="last-update">--</span></p>
+        </footer>
+    </div>
+
+    <script src="health.js"></script>
+</body>
+</html>

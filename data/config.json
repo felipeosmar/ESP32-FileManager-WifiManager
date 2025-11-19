@@ -1,0 +1,7 @@
+{
+  "wifi": {
+    "ssid": "ESP32-FileManager",
+    "password": "12345678",
+    "ap_mode": true
+  }
+}

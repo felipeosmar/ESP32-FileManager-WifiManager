@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atualização de Firmware - ESP32</title>
+    <link rel="stylesheet" href="firmware.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Atualização de Firmware</h1>
+            <div class="header-right">
+                <div class="status-indicator">
+                    <span class="status-dot" id="upload-status"></span>
+                    <span id="status-text">Pronto</span>
+                </div>
+                <a href="/" class="nav-btn">Principal</a>
+                <a href="/health" class="nav-btn">Saúde</a>
+                <a href="/filemanager" class="nav-btn">Arquivos</a>
+            </div>
+        </header>
+
+        <main>
+            <!-- Warning Section -->
+            <section class="warning-section">
+                <div class="warning-card">
+                    <div class="warning-icon">⚠️</div>
+                    <div class="warning-content">
+                        <h3>Atenção</h3>
+                        <p>A atualização de firmware irá reiniciar o dispositivo. Certifique-se de que:</p>
+                        <ul>
+                            <li>O arquivo é um firmware ESP32 válido (.bin)</li>
+                            <li>O dispositivo está conectado à alimentação estável</li>
+                            <li>Você não interromperá o processo durante a atualização</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Upload Zone -->
+            <section class="upload-section">
+                <div class="upload-zone" id="uploadZone">
+                    <div class="upload-icon">🔧</div>
+                    <p class="upload-text">Arraste o arquivo .bin aqui ou clique para selecionar</p>
+                    <p class="upload-hint">Apenas arquivos de firmware ESP32 (.bin)</p>
+                    <input type="file" id="firmwareInput" accept=".bin" style="display: none;">
+                </div>
+            </section>
+
+            <!-- Progress Section -->
+            <section class="progress-section" id="progressSection" style="display: none;">
+                <div class="progress-container">
+                    <h3>Progresso da Atualização</h3>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill">
+                            <span class="progress-text" id="progressText">0%</span>
+                        </div>
+                    </div>
+                    <p class="status-message" id="statusMessage">Iniciando...</p>
+                </div>
+            </section>
+
+            <!-- Error Banner -->
+            <section class="error-section" id="errorSection" style="display: none;">
+                <div class="error-banner" id="errorBanner">
+                    <span class="error-icon">❌</span>
+                    <span class="error-message" id="errorMessage"></span>
+                    <button class="error-close" onclick="closeError()">×</button>
+                </div>
+            </section>
+
+            <!-- Success Section -->
+            <section class="success-section" id="successSection" style="display: none;">
+                <div class="success-card">
+                    <div class="success-icon">✅</div>
+                    <div class="success-content">
+                        <h3>Atualização Completa!</h3>
+                        <p id="successMessage">O dispositivo foi atualizado com sucesso.</p>
+                        <p class="reconnect-info" id="reconnectInfo"></p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Info Section -->
+            <section class="info-section">
+                <h2>Informações</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-icon">📋</div>
+                        <div class="info-content">
+                            <span class="info-label">Processo de Atualização</span>
+                            <span class="info-value">Validação → Upload → Gravação → Reinício</span>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-icon">⏱️</div>
+                        <div class="info-content">
+                            <span class="info-label">Tempo Estimado</span>
+                            <span class="info-value">60-90 segundos</span>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-icon">💾</div>
+                        <div class="info-content">
+                            <span class="info-label">Tamanho Máximo</span>
+                            <span class="info-value">~1.9 MB</span>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-icon">🔄</div>
+                        <div class="info-content">
+                            <span class="info-label">Rollback Automático</span>
+                            <span class="info-value">Ativo</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>ESP32 Firmware Update v1.0 | OTA Update System</p>
+        </footer>
+    </div>
+
+    <script src="firmware.js"></script>
+</body>
+</html>

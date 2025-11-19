@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 File Manager</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📁 ESP32 File Manager</h1>
+            <div class="header-right">
+                <div class="status-bar">
+                    <span class="status-item">
+                        <span class="status-dot" id="connection-status"></span>
+                        <span id="status-text">Conectando...</span>
+                    </span>
+                </div>
+                <a href="/health" class="filemanager-btn">🏥 Saúde</a>
+                <a href="/firmware" class="filemanager-btn">🚀 Firmware</a>
+                <a href="/filemanager" class="filemanager-btn">📁 Arquivos</a>
+            </div>
+        </header>
+
+        <main>
+            <!-- Welcome Section -->
+            <section class="welcome-section">
+                <div class="welcome-card">
+                    <h2>Bem-vindo ao ESP32 File Manager</h2>
+                    <p>Sistema de gerenciamento de arquivos via WiFi com atualizações OTA</p>
+
+                    <div class="features-grid">
+                        <div class="feature-card">
+                            <div class="feature-icon">📁</div>
+                            <h3>Gerenciador de Arquivos</h3>
+                            <p>Upload, download, edição e exclusão de arquivos no cartão SD</p>
+                            <a href="/filemanager" class="feature-link">Acessar →</a>
+                        </div>
+
+                        <div class="feature-card">
+                            <div class="feature-icon">🚀</div>
+                            <h3>Atualização de Firmware</h3>
+                            <p>Atualize o firmware do ESP32 via WiFi (OTA)</p>
+                            <a href="/firmware" class="feature-link">Acessar →</a>
+                        </div>
+
+                        <div class="feature-card">
+                            <div class="feature-icon">🏥</div>
+                            <h3>Monitor de Saúde</h3>
+                            <p>Monitore o status do sistema, memória, WiFi e cartão SD</p>
+                            <a href="/health" class="feature-link">Acessar →</a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Status Info -->
+            <section class="info-section">
+                <h2>Informações do Sistema</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Plataforma:</span>
+                        <span class="info-value">ESP32</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Versão:</span>
+                        <span class="info-value">1.0.0</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Uptime:</span>
+                        <span class="info-value" id="uptime">Carregando...</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">WiFi:</span>
+                        <span class="info-value" id="wifi-status">Carregando...</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>ESP32 File Manager v1.0 | WiFi Manager & OTA Updates | © 2024</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Manager - ESP32</title>
+    <link rel="stylesheet" href="/filemanager.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📁 File Manager</h1>
+            <div class="header-nav">
+                <a href="/" class="back-btn">← Principal</a>
+                <a href="/health" class="back-btn">🏥 Saúde</a>
+                <a href="/firmware" class="back-btn">🚀 Firmware</a>
+            </div>
+        </header>
+
+        <div class="toolbar">
+            <button class="btn btn-primary" onclick="refreshFiles()">🔄 Atualizar</button>
+            <button class="btn btn-success" onclick="createFolder()">📁 Nova Pasta</button>
+            <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">⬆️ Upload</button>
+        </div>
+
+        <div class="path">
+            Caminho: <strong id="currentPath">/</strong>
+        </div>
+
+        <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+            <p>🎯 Arraste arquivos aqui ou clique para selecionar</p>
+            <input type="file" id="fileInput" multiple onchange="handleFiles(this.files)">
+        </div>
+
+        <div class="progress" id="progressBar">
+            <div class="progress-bar" id="progressFill">0%</div>
+        </div>
+
+        <div class="file-list" id="fileList">
+            <p style="text-align: center; padding: 40px; color: #6c757d;">Carregando...</p>
+        </div>
+    </div>
+
+    <!-- Editor Modal -->
+    <div id="editorModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="editorTitle">✏️ Editar Arquivo</h2>
+                <span class="close-btn" onclick="closeEditor()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <textarea id="fileEditor" spellcheck="false"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeEditor()">❌ Cancelar</button>
+                <button class="btn btn-success" onclick="saveFile()">💾 Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/filemanager.js"></script>
+</body>
+</html>
