@@ -4,24 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 File Manager</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="unified.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>📁 ESP32 File Manager</h1>
-            <div class="header-right">
-                <div class="status-bar">
-                    <span class="status-item">
-                        <span class="status-dot" id="connection-status"></span>
-                        <span id="status-text">Conectando...</span>
-                    </span>
-                </div>
-                <a href="/health" class="filemanager-btn">🏥 Saúde</a>
-                <a href="/firmware" class="filemanager-btn">🚀 Firmware</a>
-                <a href="/filemanager" class="filemanager-btn">📁 Arquivos</a>
-            </div>
-        </header>
+        <div id="header-placeholder"></div>
 
         <main>
             <!-- Welcome Section -->
@@ -84,6 +71,10 @@
         </footer>
     </div>
 
+    <script src="header.js"></script>
+    <script>
+        loadHeader('🏠 ESP32 File Manager');
+    </script>
     <script src="app.js"></script>
 </body>
 </html>

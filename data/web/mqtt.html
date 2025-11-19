@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuração MQTT - ESP32</title>
+    <link rel="stylesheet" href="unified.css">
+</head>
+<body>
+    <div class="container">
+        <div id="header-placeholder"></div>
+
+        <main>
+            <!-- Status Section -->
+            <section class="status-section">
+                <div class="status-card" id="mqttStatusCard">
+                    <div class="status-icon" id="mqttStatusIcon">📡</div>
+                    <div class="status-info">
+                        <h2>Status MQTT</h2>
+                        <div class="status-value" id="mqttStatus">Verificando...</div>
+                        <div class="uptime" id="mqttStatusDetail">Aguarde...</div>
+                    </div>
+                    <div class="refresh-btn" onclick="checkMQTTStatus()">
+                        <span class="refresh-icon">🔄</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Configuration Section -->
+            <section class="info-section">
+                <h2>⚙️ Configuração do Servidor MQTT</h2>
+
+                <form id="mqttConfigForm">
+                    <!-- Enable/Disable MQTT -->
+                    <div class="toggle-container" style="margin-bottom: 20px;">
+                        <div style="flex: 1;">
+                            <div class="toggle-label">Habilitar MQTT</div>
+                            <div class="toggle-info">Ativar ou desativar a conexão MQTT</div>
+                        </div>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="mqttEnabled" name="enabled">
+                            <label for="mqttEnabled">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Server Configuration -->
+                    <div class="form-group">
+                        <label for="mqttServer">Servidor MQTT *</label>
+                        <input type="text"
+                               id="mqttServer"
+                               name="server"
+                               class="form-input"
+                               placeholder="broker.hivemq.com ou 192.168.1.100"
+                               required>
+                        <small style="color: var(--text-light);">IP ou hostname do broker MQTT</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mqttPort">Porta</label>
+                        <input type="number"
+                               id="mqttPort"
+                               name="port"
+                               class="form-input"
+                               value="1883"
+                               min="1"
+                               max="65535"
+                               required>
+                        <small style="color: var(--text-light);">Porta padrão: 1883 (sem TLS) ou 8883 (com TLS)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mqttUsername">Usuário</label>
+                        <input type="text"
+                               id="mqttUsername"
+                               name="username"
+                               class="form-input"
+                               placeholder="(opcional)">
+                        <small style="color: var(--text-light);">Deixe em branco se não houver autenticação</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mqttPassword">Senha</label>
+                        <div class="password-input-group">
+                            <input type="password"
+                                   id="mqttPassword"
+                                   name="password"
+                                   class="form-input"
+                                   placeholder="(opcional)">
+                            <button type="button" class="btn-toggle-password" onclick="togglePasswordVisibility()">
+                                👁️
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mqttMainTopic">Tópico Principal *</label>
+                        <input type="text"
+                               id="mqttMainTopic"
+                               name="main_topic"
+                               class="form-input"
+                               placeholder="esp32/data"
+                               required>
+                        <small style="color: var(--text-light);">Tópico onde as mensagens serão publicadas</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mqttClientId">Client ID</label>
+                        <input type="text"
+                               id="mqttClientId"
+                               name="client_id"
+                               class="form-input"
+                               placeholder="Gerado automaticamente"
+                               readonly>
+                        <small style="color: var(--text-light);">Identificador único do cliente (gerado automaticamente)</small>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button type="submit" class="btn btn-primary" style="flex: 1;">
+                            💾 Salvar Configuração
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="testConnection()">
+                            🔌 Testar Conexão
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Test Section -->
+            <section class="info-section">
+                <h2>🧪 Teste de Publicação</h2>
+
+                <div class="form-group">
+                    <label for="testTopic">Tópico</label>
+                    <input type="text"
+                           id="testTopic"
+                           class="form-input"
+                           placeholder="Usar tópico principal">
+                </div>
+
+                <div class="form-group">
+                    <label for="testMessage">Mensagem</label>
+                    <textarea id="testMessage"
+                              class="form-input"
+                              rows="3"
+                              placeholder='{"temperature": 25.5, "humidity": 60}'></textarea>
+                </div>
+
+                <div class="toggle-container" style="margin-bottom: 15px;">
+                    <div style="flex: 1;">
+                        <div class="toggle-label">Mensagem Retida (Retained)</div>
+                        <div class="toggle-info">O broker manterá a última mensagem para novos assinantes</div>
+                    </div>
+                    <div class="toggle-switch">
+                        <input type="checkbox" id="testRetained">
+                        <label for="testRetained">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <button type="button" class="btn btn-success" onclick="publishTestMessage()" style="width: 100%;">
+                    📤 Publicar Mensagem
+                </button>
+            </section>
+
+            <!-- Info Section -->
+            <section class="info-section">
+                <h2>ℹ️ Informações</h2>
+                <div class="info-box">
+                    <p><strong>Como usar:</strong></p>
+                    <ul>
+                        <li>Configure o servidor MQTT (broker) e as credenciais</li>
+                        <li>Defina o tópico principal onde as mensagens serão publicadas</li>
+                        <li>Ative o MQTT usando o botão no topo</li>
+                        <li>Use a seção de teste para verificar se está funcionando</li>
+                        <li>O ESP32 se reconectará automaticamente em caso de perda de conexão</li>
+                    </ul>
+                    <p><strong>Brokers públicos para teste:</strong></p>
+                    <ul>
+                        <li>broker.hivemq.com (porta 1883)</li>
+                        <li>test.mosquitto.org (porta 1883)</li>
+                        <li>mqtt.eclipseprojects.io (porta 1883)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Error Section -->
+            <section class="error-section" id="errorSection" style="display: none;">
+                <div class="error-banner" id="errorBanner">
+                    <span class="error-icon">❌</span>
+                    <span class="error-message" id="errorMessage"></span>
+                    <button class="error-close" onclick="closeError()">×</button>
+                </div>
+            </section>
+
+            <!-- Success Section -->
+            <section class="success-section" id="successSection" style="display: none;">
+                <div class="success-card">
+                    <div class="success-icon">✅</div>
+                    <div class="success-content">
+                        <h3>Sucesso!</h3>
+                        <p id="successMessage"></p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>ESP32 MQTT Client v1.0</p>
+        </footer>
+    </div>
+
+    <script src="header.js"></script>
+    <script>
+        loadHeader('📡 MQTT');
+    </script>
+    <script src="mqtt.js"></script>
+</body>
+</html>

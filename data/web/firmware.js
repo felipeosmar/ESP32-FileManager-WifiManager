@@ -88,11 +88,11 @@ async function uploadFirmware(file) {
     document.getElementById('errorSection').style.display = 'none';
     document.getElementById('successSection').style.display = 'none';
 
-    // Update status indicator
-    const statusDot = document.getElementById('upload-status');
+    // Update status indicator (if available in header)
+    const statusDot = document.getElementById('connection-status');
     const statusText = document.getElementById('status-text');
-    statusDot.classList.add('uploading');
-    statusText.textContent = 'Enviando...';
+    if (statusDot) statusDot.classList.add('uploading');
+    if (statusText) statusText.textContent = 'Enviando...';
 
     // Prevent navigation during upload
     window.addEventListener('beforeunload', preventNavigation);
@@ -233,12 +233,14 @@ function handleUploadSuccess() {
             document.getElementById('successMessage').textContent =
                 'Firmware gravado com sucesso! O dispositivo está reiniciando...';
 
-            // Update status indicator
-            const statusDot = document.getElementById('upload-status');
+            // Update status indicator (if available in header)
+            const statusDot = document.getElementById('connection-status');
             const statusText = document.getElementById('status-text');
-            statusDot.classList.remove('uploading');
-            statusDot.classList.add('connected');
-            statusText.textContent = 'Processando';
+            if (statusDot) {
+                statusDot.classList.remove('uploading');
+                statusDot.classList.add('connected');
+            }
+            if (statusText) statusText.textContent = 'Processando';
 
             // Start reconnect polling
             setTimeout(() => {
@@ -261,19 +263,21 @@ function handleUploadError(errorMsg) {
     document.getElementById('uploadZone').classList.remove('uploading');
     document.getElementById('progressSection').style.display = 'none';
 
-    // Update status indicator
-    const statusDot = document.getElementById('upload-status');
+    // Update status indicator (if available in header)
+    const statusDot = document.getElementById('connection-status');
     const statusText = document.getElementById('status-text');
-    statusDot.classList.remove('uploading');
-    statusText.textContent = 'Erro';
+    if (statusDot) statusDot.classList.remove('uploading');
+    if (statusText) statusText.textContent = 'Erro';
 
     // Show error
     showError(errorMsg);
 
     // Reset status after 5 seconds
     setTimeout(() => {
-        statusDot.classList.remove('uploading');
-        statusText.textContent = 'Pronto';
+        const statusDot = document.getElementById('connection-status');
+        const statusText = document.getElementById('status-text');
+        if (statusDot) statusDot.classList.remove('uploading');
+        if (statusText) statusText.textContent = 'Conectado';
     }, 5000);
 }
 
@@ -282,11 +286,11 @@ function startReconnectPolling() {
     console.log('Starting reconnect polling...');
 
     const reconnectInfo = document.getElementById('reconnectInfo');
-    reconnectInfo.innerHTML = '⏳ Aguardando reconexão do dispositivo...<br><small>(O ESP32 leva cerca de 5-10 segundos para reiniciar)</small>';
+    reconnectInfo.innerHTML = '⏳ Aguardando reconexão do dispositivo...<br><small>(O ESP32 leva cerca de 20-30 segundos para reiniciar)</small>';
 
     let attempts = 0;
-    const maxAttempts = 30; // Increased from 20 to 30 attempts
-    const pollInterval = 2000; // Reduced from 3s to 2s for faster detection
+    const maxAttempts = 15; // 15 attempts x 2s = 30 seconds total
+    const pollInterval = 2000; // 2 seconds between attempts
 
     const pollTimer = setInterval(async () => {
         attempts++;
@@ -322,11 +326,13 @@ function startReconnectPolling() {
                 window.removeEventListener('beforeunload', preventNavigation);
 
                 // Update final status
-                const statusDot = document.getElementById('upload-status');
+                const statusDot = document.getElementById('connection-status');
                 const statusText = document.getElementById('status-text');
-                statusDot.classList.remove('uploading');
-                statusDot.classList.add('connected');
-                statusText.textContent = 'Completo';
+                if (statusDot) {
+                    statusDot.classList.remove('uploading');
+                    statusDot.classList.add('connected');
+                }
+                if (statusText) statusText.textContent = 'Completo';
 
                 // Reload page after 3 seconds to allow user to see success message
                 setTimeout(() => {
@@ -353,10 +359,10 @@ function startReconnectPolling() {
             window.removeEventListener('beforeunload', preventNavigation);
 
             // Update status
-            const statusDot = document.getElementById('upload-status');
+            const statusDot = document.getElementById('connection-status');
             const statusText = document.getElementById('status-text');
-            statusDot.classList.remove('uploading');
-            statusText.textContent = 'Timeout';
+            if (statusDot) statusDot.classList.remove('uploading');
+            if (statusText) statusText.textContent = 'Timeout';
         }
     }, pollInterval);
 }

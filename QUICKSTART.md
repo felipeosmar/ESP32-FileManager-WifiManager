@@ -1,295 +1,258 @@
-# Guia de Início Rápido
+# Guia de Início Rápido - SPIFFS Edition
 
-Este guia vai te ajudar a ter o ESP32 File Manager funcionando em menos de 10 minutos!
+Este guia vai te ajudar a ter o ESP32 File Manager funcionando em menos de 5 minutos!
+
+## ⚡ Novidade: SEM SD CARD!
+
+Este projeto agora usa **SPIFFS/LittleFS interno** - não precisa mais de SD Card!
 
 ## Checklist Pré-Requisitos
 
 Antes de começar, certifique-se de ter:
 
 - [ ] ESP32 (qualquer modelo)
-- [ ] Módulo SD Card
-- [ ] Cartão microSD formatado em FAT32
-- [ ] 6 cabos jumper
 - [ ] Cabo USB
 - [ ] PlatformIO instalado (VSCode ou CLI)
+- [ ] ❌ ~~SD Card~~ **NÃO PRECISA MAIS!**
+- [ ] ❌ ~~Módulo SD~~ **NÃO PRECISA MAIS!**
 
-## Passo 1: Hardware (5 minutos)
-
-### Conexões Básicas
-
-Conecte o módulo SD Card ao ESP32:
-
-```
-SD Card Module → ESP32
-━━━━━━━━━━━━━━━━━━━━━━━━━
-CLK  → GPIO 14
-CMD  → GPIO 15
-D0   → GPIO 2
-VCC  → 3.3V
-GND  → GND
-```
-
-**Dica**: Use cabos curtos (menos de 15cm) para evitar problemas!
-
-## Passo 2: Preparar o SD Card (2 minutos)
-
-### Formatar
-
-1. **Windows**: Clique direito > Formatar > FAT32
-2. **macOS**: Utilitário de Disco > Apagar > MS-DOS (FAT)
-3. **Linux**: `sudo mkfs.vfat -F 32 /dev/sdX1`
-
-### Copiar Arquivos
-
-No diretório do projeto, copie os arquivos para o SD:
+## Passo 1: Clonar e Abrir o Projeto (30 segundos)
 
 ```bash
-# Copie todo o conteúdo de data/ para a raiz do SD
-cp -r data/* /media/SD_CARD/
-
-# Ou manualmente:
-# 1. Copie config.json para a raiz
-# 2. Copie a pasta web/ inteira
+git clone <url-do-repositorio>
+cd ESP32-FileManager-WifiManager
+code .  # Abre no VSCode
 ```
 
-Estrutura final no SD:
-```
-SD:/
-├── config.json
-└── web/
-    ├── index.html
-    ├── app.js
-    └── ... (outros 10 arquivos)
-```
+## Passo 2: Upload do Filesystem (1 minuto)
 
-## Passo 3: Configurar WiFi (1 minuto)
+**IMPORTANTE**: Faça isso PRIMEIRO!
 
-Edite o arquivo `config.json` no SD card:
+### Via VSCode (Recomendado)
+1. Pressione `Ctrl+Shift+P`
+2. Digite `Upload File System image`
+3. Pressione Enter
+4. Aguarde finalizar
 
-### Opção A: Modo Access Point (Mais fácil)
-
-```json
-{
-  "wifi": {
-    "ssid": "ESP32-FileManager",
-    "password": "12345678",
-    "ap_mode": true
-  }
-}
-```
-
-### Opção B: Conectar à sua rede WiFi
-
-```json
-{
-  "wifi": {
-    "ssid": "SuaRedeWiFi",
-    "password": "SuaSenha",
-    "ap_mode": false
-  }
-}
-```
-
-**Salve o arquivo!**
-
-## Passo 4: Upload do Firmware (2 minutos)
-
-### Método A: VSCode + PlatformIO
-
-1. Abra o projeto no VSCode
-2. Conecte o ESP32 via USB
-3. Clique em "Upload" na barra inferior (ícone →)
-4. Aguarde a compilação e upload
-
-### Método B: Terminal
-
+### Via Terminal
 ```bash
-# No diretório do projeto
+platformio run --target uploadfs
+```
+
+Você verá:
+```
+Building FS image...
+Uploading...
+Success!
+```
+
+## Passo 3: Upload do Firmware (1 minuto)
+
+### Via VSCode
+Clique no ícone `→` (Upload) na barra inferior do PlatformIO
+
+### Via Terminal
+```bash
 platformio run --target upload
 ```
 
-## Passo 5: Inserir o SD e Ligar (30 segundos)
+## Passo 4: Conectar e Testar (1 minuto)
 
-1. **IMPORTANTE**: Desligue o ESP32
-2. Insira o cartão SD no módulo
-3. Ligue o ESP32 novamente
+### Opção A: Modo AP (Mais Fácil)
 
-## Passo 6: Conectar e Testar (1 minuto)
+1. **Procure WiFi** "ESP32-FileManager" no seu celular/PC
+2. **Conecte** usando senha: `12345678`
+3. **Abra navegador**: `http://192.168.4.1`
 
-### Se usou Modo AP:
+### Opção B: Modo Station (Sua Rede)
 
-1. Procure a rede WiFi "ESP32-FileManager" no seu celular/computador
-2. Conecte usando a senha "12345678"
-3. Abra o navegador em: `http://192.168.4.1`
+Se quiser conectar à sua rede WiFi:
 
-### Se conectou à sua rede:
-
-1. Abra o Serial Monitor: `platformio device monitor`
-2. Veja o IP exibido (exemplo: 192.168.1.100)
-3. Abra o navegador em: `http://[IP-EXIBIDO]`
-
-## Passo 7: Verificar Funcionamento
-
-Você deve ver a página inicial com 3 cards:
-
-- 📁 Gerenciador de Arquivos
-- 🚀 Atualização de Firmware
-- 🏥 Monitor de Saúde
-
-**Clique em cada um para testar!**
+1. Acesse pelo modo AP primeiro (passos acima)
+2. Vá em **File Manager**
+3. Edite `/config.json`:
+   ```json
+   {
+     "wifi": {
+       "ssid": "SuaRede",
+       "password": "SuaSenha",
+       "ap_mode": false
+     }
+   }
+   ```
+4. Reinicie o ESP32
+5. Veja o IP no Serial Monitor
+6. Acesse `http://[IP]`
 
 ## Pronto! 🎉
 
-Seu ESP32 File Manager está funcionando!
+Você deve ver a página inicial com 3 cards:
+
+- 📁 **Gerenciador de Arquivos** - Gerencie arquivos na SPIFFS
+- 🚀 **Atualização de Firmware** - OTA via web
+- 🏥 **Monitor de Saúde** - Status do sistema
 
 ---
 
-## Troubleshooting Rápido
+## Troubleshooting Ultra-Rápido
 
-### Problema: SD Card não reconhecido
+### ❌ "SPIFFS Mount Failed"
 
-**Soluções rápidas:**
-```
-1. Verifique as conexões (principalmente GND e VCC)
-2. Certifique-se que o SD está em FAT32
-3. Teste outro cartão SD
-4. Use cabos mais curtos
+```bash
+# Solução: Fazer upload do filesystem
+platformio run --target uploadfs
 ```
 
-### Problema: WiFi não aparece (Modo AP)
+### ❌ Interface web não aparece
 
-**Soluções rápidas:**
-```
-1. Verifique o Serial Monitor para erros
-2. Aguarde até 30 segundos após ligar
-3. Procure por "ESP32" nas redes WiFi próximas
-4. Tente reiniciar o ESP32
-```
+```bash
+# 1. Confirme que fez uploadfs
+platformio run --target uploadfs
 
-### Problema: Não conecta à rede (Modo Station)
-
-**Soluções rápidas:**
-```
-1. Verifique SSID e senha no config.json
-2. Certifique-se de que não há espaços extras
-3. Tente com senha mais simples (para testar)
-4. Se falhar, o ESP32 volta automaticamente para modo AP
+# 2. Verifique no Serial Monitor
+platformio device monitor
 ```
 
-### Problema: Página não carrega
-
-**Soluções rápidas:**
-```
-1. Verifique se os arquivos estão em SD:/web/
-2. Desligue, remova e reinsira o SD
-3. Verifique Serial Monitor para ver erros
-4. Tente acessar diretamente: http://[IP]/filemanager
-```
-
-### Problema: Serial Monitor mostra erros
-
-**Erros comuns e soluções:**
+### ❌ WiFi não conecta (modo Station)
 
 ```
-"SD Card Mount Failed"
-→ Verifique conexões do SD
-→ Reformate em FAT32
-→ Teste outro cartão
-
-"Failed to load config"
-→ Confira que config.json está na raiz do SD
-→ Valide o JSON em jsonlint.com
-
-"WiFi failed to connect"
-→ Verifique credenciais
-→ Sistema vai automaticamente para modo AP
+1. Volte para modo AP editando config.json
+2. Verifique SSID e senha
+3. ESP32 volta automaticamente para AP se falhar
 ```
+
+### ❌ Página em branco
+
+```
+Provável: Esqueceu de fazer uploadfs
+Solução: platformio run --target uploadfs
+```
+
+## Comandos Essenciais
+
+```bash
+# Upload filesystem (apenas quando mudar arquivos em data/)
+platformio run --target uploadfs
+
+# Upload firmware (código C++)
+platformio run --target upload
+
+# Upload tudo (filesystem + firmware)
+platformio run --target uploadfs && platformio run --target upload
+
+# Monitor serial
+platformio device monitor
+
+# Compilar sem upload
+platformio run
+```
+
+## FAQ Relâmpago
+
+**Q: Preciso fazer uploadfs toda vez?**
+A: Não! Apenas quando alterar arquivos em `data/`
+
+**Q: Quanto espaço tenho?**
+A: 960 KB na SPIFFS (veja em /health)
+
+**Q: E se deletar `/web/` sem querer?**
+A: Execute `platformio run --target uploadfs` para restaurar
+
+**Q: Posso usar ESP32-S2/S3/C3?**
+A: Sim! Mude `board` no `platformio.ini`
+
+**Q: Posso fazer OTA com este firmware?**
+A: Sim! Acesse `/firmware` e faça upload do `.bin`
+
+## Diferenças da Versão SD Card
+
+| Aspecto | Versão Antiga (SD) | Nova (SPIFFS) |
+|---------|-------------------|---------------|
+| Hardware | ESP32 + SD Card | Apenas ESP32 |
+| Espaço | ~GB | 960 KB |
+| Confiabilidade | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| Velocidade | ⭐⭐⭐ | ⭐⭐⭐⭐ |
+| Setup | 10 min | 5 min |
 
 ## Próximos Passos
 
-Agora que está funcionando, explore:
+1. ✅ Explore o **File Manager** - Faça upload de arquivos
+2. ✅ Veja o **Health Monitor** - Status do sistema
+3. ✅ Teste o **OTA** - Atualize o firmware via web
+4. ✅ Customize `config.json` - Configure seu WiFi
 
-1. **File Manager** - Faça upload de arquivos
-2. **Health Monitor** - Veja o status do sistema
-3. **Firmware Update** - Teste atualização OTA (use o .bin gerado)
-
-## Documentação Completa
-
-Para mais detalhes, consulte:
-
-- `README.md` - Documentação completa
-- `HARDWARE.md` - Esquemas detalhados de hardware
-- `API.md` - Referência da API REST
-
-## Comandos Úteis
+## Workflow de Desenvolvimento
 
 ```bash
-# Compilar sem fazer upload
-platformio run
-
-# Upload via serial
+# Dia-a-dia (apenas código)
 platformio run --target upload
 
-# Abrir monitor serial
-platformio device monitor
+# Mudou arquivos web (data/)
+platformio run --target uploadfs
+platformio run --target upload
 
-# Compilar e monitorar
-platformio run --target upload && platformio device monitor
-
-# Limpar build
-platformio run --target clean
+# Atualização completa
+platformio run --target uploadfs && platformio run --target upload
 ```
 
-## Customização Rápida
+## Espaço na SPIFFS
 
-### Mudar nome da rede WiFi (AP Mode)
-
-Edite `config.json`:
-```json
-{
-  "wifi": {
-    "ssid": "MeuESP32",  ← Mude aqui
-    "password": "minhasenha123",
-    "ap_mode": true
-  }
-}
+```
+Total: 960 KB
+├── Interface Web: ~100 KB
+└── Seus Arquivos: ~860 KB disponível
 ```
 
-### Mudar cor da interface
+Monitore em: `/health` > SPIFFS section
 
-Edite `data/web/style.css` e altere as cores CSS.
+## Dicas Pro
 
-### Adicionar sua logo
+1. **Edite config.json via web** - Não precisa recompilar!
+2. **Use File Manager** - Upload arquivos sem USB
+3. **Monitore /health** - Veja uso de SPIFFS em tempo real
+4. **OTA Updates** - Atualize firmware via WiFi
 
-1. Coloque `logo.png` no SD em `/web/`
-2. Edite `data/web/index.html` e adicione:
-   ```html
-   <img src="/web/logo.png" alt="Logo">
-   ```
+## Backup de Arquivos
 
-## Backup de Segurança
+### Download via interface web
+1. Acesse `/filemanager`
+2. Selecione arquivo
+3. Clique em Download
 
-**IMPORTANTE**: Sempre faça backup do SD antes de experimentos!
+### Backup completo da SPIFFS
+```bash
+esptool.py --port /dev/ttyUSB0 read_flash 0x310000 0xF0000 backup.bin
+```
+
+## Restaurar Arquivos
+
+Se deletou algo importante:
 
 ```bash
-# Linux/macOS
-cp -r /media/SD_CARD ~/backup-esp32/
-
-# Windows
-# Copie manualmente todos os arquivos para uma pasta
+# Restaura TODOS os arquivos de data/
+platformio run --target uploadfs
 ```
+
+## Performance Esperada
+
+- **Upload de 10KB**: ~1 segundo
+- **Download de 50KB**: <1 segundo
+- **Edição inline**: Instantâneo
+- **OTA 1.5MB**: ~30 segundos
 
 ## Suporte
 
-Se precisar de ajuda:
+Se algo não funcionar:
 
-1. ✅ Verifique este guia primeiro
-2. ✅ Consulte a documentação completa
-3. ✅ Veja o Serial Monitor para logs
-4. ✅ Teste cada componente separadamente
+1. ✅ Veja este guia de novo
+2. ✅ Execute `uploadfs` e `upload` novamente
+3. ✅ Verifique Serial Monitor: `platformio device monitor`
+4. ✅ Confira a documentação completa: `README.md`
 
 ---
 
-**Boa sorte com seu ESP32 File Manager!** 🚀
+**Boa sorte!** 🚀
 
-Se funcionou de primeira, parabéns! Se teve problemas, não desista - a maioria é resolvida verificando as conexões e a formatação do SD.
+Se funcionou em 5 minutos, você está pronto para usar! Se não, 99% dos problemas são resolvidos com `platformio run --target uploadfs`.
+
+**Dica Final**: Salve `config.json` customizado antes de executar `uploadfs`, pois ele sobrescreve tudo em `data/`!

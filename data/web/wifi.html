@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi Manager - ESP32</title>
+    <link rel="stylesheet" href="unified.css">
+</head>
+<body>
+    <div class="container">
+        <div id="header-placeholder"></div>
+
+        <main>
+            <!-- Current Connection Section -->
+            <section class="info-section">
+                <h2>📶 Conexão Atual</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">SSID</span>
+                        <span class="info-value" id="current-ssid">Carregando...</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Endereço IP</span>
+                        <span class="info-value" id="current-ip">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Sinal</span>
+                        <span class="info-value" id="current-rssi">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Status</span>
+                        <span class="info-value" id="current-status">--</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Scan Controls -->
+            <section>
+                <div class="toolbar">
+                    <button class="btn btn-primary" onclick="scanNetworks()">🔍 Buscar Redes</button>
+                    <button class="btn btn-secondary" id="refreshBtn" onclick="scanNetworks()" disabled>
+                        <span id="countdown"></span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Networks List -->
+            <section>
+                <h2>Redes WiFi Disponíveis</h2>
+                <div id="networksList" class="networks-list">
+                    <p style="text-align: center; padding: 40px; color: #6c757d;">
+                        Clique em "Buscar Redes" para escanear redes WiFi disponíveis
+                    </p>
+                </div>
+            </section>
+
+            <!-- Loading Indicator -->
+            <section id="loadingSection" style="display: none;">
+                <div class="progress-container">
+                    <h3>🔍 Escaneando redes WiFi...</h3>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: 100%; animation: pulse 1.5s infinite;">
+                            <span class="progress-text">Aguarde...</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>ESP32 WiFi Manager v1.0 | Gerenciamento de Conexões WiFi</p>
+        </footer>
+    </div>
+
+    <!-- Connection Modal -->
+    <div id="connectionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">🔐 Conectar à Rede WiFi</h2>
+                <span class="close-btn" onclick="closeConnectionModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="wifi-connect-form">
+                    <div class="form-group">
+                        <label for="selectedSSID">Rede WiFi:</label>
+                        <input type="text" id="selectedSSID" readonly class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="wifiPassword">Senha:</label>
+                        <div class="password-input-group">
+                            <input type="password" id="wifiPassword" class="form-input" placeholder="Digite a senha WiFi">
+                            <button class="btn-toggle-password" onclick="togglePasswordVisibility()">👁️</button>
+                        </div>
+                    </div>
+                    <div class="info-box">
+                        <p><strong>⚠️ Atenção:</strong></p>
+                        <ul>
+                            <li>A senha será salva no arquivo config.json</li>
+                            <li>O ESP32 será reiniciado após salvar</li>
+                            <li>A nova conexão será estabelecida automaticamente</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeConnectionModal()">❌ Cancelar</button>
+                <button class="btn btn-success" onclick="connectToNetwork()">💾 Conectar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="header.js"></script>
+    <script>
+        loadHeader('📶 WiFi Manager');
+    </script>
+    <script src="wifi.js"></script>
+</body>
+</html>

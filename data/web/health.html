@@ -4,22 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 System Health</title>
-    <link rel="stylesheet" href="health.css">
+    <link rel="stylesheet" href="unified.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>🏥 ESP32 System Health</h1>
-            <div class="header-right">
-                <div class="status-indicator">
-                    <span class="status-dot" id="overall-status"></span>
-                    <span id="status-text">Carregando...</span>
-                </div>
-                <a href="/" class="back-btn">🏠 Principal</a>
-                <a href="/firmware" class="back-btn">🚀 Firmware</a>
-                <a href="/filemanager" class="back-btn">📁 Arquivos</a>
-            </div>
-        </header>
+        <div id="header-placeholder"></div>
 
         <main>
             <!-- Overall Status -->
@@ -219,6 +208,10 @@
         </footer>
     </div>
 
+    <script src="header.js"></script>
+    <script>
+        loadHeader('🏥 ESP32 System Health');
+    </script>
     <script src="health.js"></script>
 </body>
 </html>

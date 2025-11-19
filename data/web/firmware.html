@@ -4,22 +4,40 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Atualização de Firmware - ESP32</title>
-    <link rel="stylesheet" href="firmware.css">
+    <link rel="stylesheet" href="unified.css">
+    <style>
+        /* Fix progress bar layout */
+        .progress-bar {
+            height: 40px;
+            border-radius: 20px;
+            position: relative;
+        }
+
+        .progress-fill {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .progress-text {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            color: #fff;
+            font-weight: bold;
+            font-size: 1em;
+        }
+
+        .status-message {
+            margin-top: 15px;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>Atualização de Firmware</h1>
-            <div class="header-right">
-                <div class="status-indicator">
-                    <span class="status-dot" id="upload-status"></span>
-                    <span id="status-text">Pronto</span>
-                </div>
-                <a href="/" class="nav-btn">Principal</a>
-                <a href="/health" class="nav-btn">Saúde</a>
-                <a href="/filemanager" class="nav-btn">Arquivos</a>
-            </div>
-        </header>
+        <div id="header-placeholder"></div>
 
         <main>
             <!-- Warning Section -->
@@ -97,7 +115,7 @@
                         <div class="info-icon">⏱️</div>
                         <div class="info-content">
                             <span class="info-label">Tempo Estimado</span>
-                            <span class="info-value">60-90 segundos</span>
+                            <span class="info-value">20-30 segundos</span>
                         </div>
                     </div>
                     <div class="info-item">
@@ -123,6 +141,10 @@
         </footer>
     </div>
 
+    <script src="header.js"></script>
+    <script>
+        loadHeader('🚀 Atualização de Firmware');
+    </script>
     <script src="firmware.js"></script>
 </body>
 </html>

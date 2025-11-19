@@ -4,18 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>File Manager - ESP32</title>
-    <link rel="stylesheet" href="/filemanager.css">
+    <link rel="stylesheet" href="/unified.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>📁 File Manager</h1>
-            <div class="header-nav">
-                <a href="/" class="back-btn">← Principal</a>
-                <a href="/health" class="back-btn">🏥 Saúde</a>
-                <a href="/firmware" class="back-btn">🚀 Firmware</a>
-            </div>
-        </header>
+        <div id="header-placeholder"></div>
 
         <div class="toolbar">
             <button class="btn btn-primary" onclick="refreshFiles()">🔄 Atualizar</button>
@@ -58,6 +51,10 @@
         </div>
     </div>
 
+    <script src="header.js"></script>
+    <script>
+        loadHeader('📁 File Manager');
+    </script>
     <script src="/filemanager.js"></script>
 </body>
 </html>
