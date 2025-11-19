@@ -25,11 +25,13 @@
 #include "web_server.h"
 #include "spiffs_manager.h"
 #include "mqtt_manager.h"
+#include "oled_manager.h"
 
 // Global objects
 AsyncWebServer server(80);
 SPIFFSManager spiffsManager;
 MQTTManager mqttManager;
+OLEDManager oledManager;
 
 // Mutex for SPIFFS access (prevents concurrent access issues)
 SemaphoreHandle_t spiffsMutex = NULL;
@@ -92,6 +94,15 @@ void setup() {
     mqttManager.connect();
   }
 
+  // Setup OLED Display
+  if (oledManager.begin()) {
+    // Show logo on startup
+    oledManager.showLogo();
+    delay(2000);
+    // Switch to system info after delay
+    oledManager.setMode(OLEDManager::MODE_SYSTEM_INFO);
+  }
+
   // Setup web server
   setupWebServer();
 
@@ -105,6 +116,25 @@ void setup() {
 void loop() {
   // MQTT loop - handle reconnection and message processing
   mqttManager.loop();
+
+  // OLED display update
+  if (oledManager.isAvailable() && oledManager.getConfig().auto_update) {
+    // Update display with current system info based on mode
+    if (oledManager.getMode() == OLEDManager::MODE_SYSTEM_INFO) {
+      oledManager.showSystemInfo(WiFi.localIP().toString().c_str(),
+                                  millis() / 1000,
+                                  ESP.getFreeHeap());
+    } else if (oledManager.getMode() == OLEDManager::MODE_NETWORK_INFO) {
+      oledManager.showNetworkInfo(WiFi.SSID().c_str(),
+                                   WiFi.RSSI(),
+                                   WiFi.localIP().toString().c_str());
+    } else if (oledManager.getMode() == OLEDManager::MODE_MQTT_INFO) {
+      const MQTTManager::MQTTConfig& mqttCfg = mqttManager.getConfig();
+      oledManager.showMQTTInfo(mqttManager.isConnected(),
+                               mqttCfg.server,
+                               mqttCfg.mainTopic);
+    }
+  }
 
   // Small delay to prevent watchdog issues
   delay(10);
@@ -1097,6 +1127,191 @@ void setupWebServer() {
     }
   );
 
+  // OLED Display page
+  server.on("/display", HTTP_GET, [](AsyncWebServerRequest *request) {
+    validateOTABoot();
+    if (spiffsManager.isReady()) {
+      request->send(LittleFS, "/web/display.html", "text/html");
+    } else {
+      request->send(503, "text/html",
+        "<html><body><h1>Display Manager unavailable</h1>"
+        "<p>SPIFFS is required for Display Manager functionality.</p>"
+        "<a href='/'>Back to Home</a></body></html>");
+    }
+  });
+
+  server.on("/display.js", HTTP_GET, [](AsyncWebServerRequest *request) {
+    serveStaticFile(request, "/web/display.js", "application/javascript");
+  });
+
+  // OLED Display Status API
+  server.on("/api/display/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+    JsonDocument doc;
+
+    const OLEDManager::OLEDConfig& config = oledManager.getConfig();
+
+    doc["enabled"] = config.enabled;
+    doc["available"] = oledManager.isAvailable();
+    doc["address"] = config.address;
+    doc["sda_pin"] = config.sda_pin;
+    doc["scl_pin"] = config.scl_pin;
+    doc["mode"] = (int)oledManager.getMode();
+
+    if (!oledManager.isAvailable() && config.enabled) {
+      doc["error"] = oledManager.getLastError();
+    }
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // OLED Display Configuration API - GET
+  server.on("/api/display/config", HTTP_GET, [](AsyncWebServerRequest *request) {
+    JsonDocument doc;
+
+    const OLEDManager::OLEDConfig& config = oledManager.getConfig();
+
+    doc["enabled"] = config.enabled;
+    doc["address"] = config.address;
+    doc["sda_pin"] = config.sda_pin;
+    doc["scl_pin"] = config.scl_pin;
+    doc["rst_pin"] = config.rst_pin;
+    doc["auto_update"] = config.auto_update;
+    doc["brightness"] = config.brightness;
+    doc["flip_display"] = config.flip_display;
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // OLED Display Configuration API - POST
+  server.on("/api/display/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
+    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+      if (index == 0) {
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, data, len);
+
+        if (error) {
+          request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+          return;
+        }
+
+        // Update OLED configuration
+        bool enabled = doc["enabled"] | false;
+        uint8_t address = doc["address"] | 0x3C;
+        uint8_t sda = doc["sda_pin"] | 21;
+        uint8_t scl = doc["scl_pin"] | 22;
+        int8_t rst = doc["rst_pin"] | -1;
+        bool autoUpdate = doc["auto_update"] | true;
+        uint8_t brightness = doc["brightness"] | 128;
+        bool flip = doc["flip_display"] | false;
+
+        oledManager.updateConfig(enabled, address, sda, scl, rst, autoUpdate, brightness, flip);
+
+        // Save to config.json
+        if (xSemaphoreTake(spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
+          File configFile = LittleFS.open("/config.json", "r");
+          JsonDocument configDoc;
+
+          if (configFile) {
+            deserializeJson(configDoc, configFile);
+            configFile.close();
+          }
+
+          // Save OLED config to JSON
+          oledManager.saveConfig(configDoc);
+
+          // Write back to file
+          configFile = LittleFS.open("/config.json", "w");
+          if (configFile) {
+            serializeJson(configDoc, configFile);
+            configFile.close();
+
+            Serial.println("OLED configuration saved to file");
+
+            request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
+          } else {
+            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
+          }
+
+          xSemaphoreGive(spiffsMutex);
+        } else {
+          request->send(503, "application/json", "{\"error\":\"System busy\"}");
+        }
+      }
+    }
+  );
+
+  // OLED Display Mode API
+  server.on("/api/display/mode", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
+    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+      if (index == 0) {
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, data, len);
+
+        if (error) {
+          request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+          return;
+        }
+
+        if (!oledManager.isAvailable()) {
+          request->send(503, "application/json", "{\"error\":\"Display not available\"}");
+          return;
+        }
+
+        int mode = doc["mode"] | 0;
+
+        switch (mode) {
+          case 0: // OFF
+            oledManager.setMode(OLEDManager::MODE_OFF);
+            break;
+          case 1: // LOGO
+            oledManager.setMode(OLEDManager::MODE_LOGO);
+            oledManager.showLogo();
+            break;
+          case 2: // SYSTEM_INFO
+            oledManager.setMode(OLEDManager::MODE_SYSTEM_INFO);
+            oledManager.showSystemInfo(WiFi.localIP().toString().c_str(),
+                                        millis() / 1000,
+                                        ESP.getFreeHeap());
+            break;
+          case 3: // NETWORK_INFO
+            oledManager.setMode(OLEDManager::MODE_NETWORK_INFO);
+            oledManager.showNetworkInfo(WiFi.SSID().c_str(),
+                                         WiFi.RSSI(),
+                                         WiFi.localIP().toString().c_str());
+            break;
+          case 4: // MQTT_INFO
+            {
+              const MQTTManager::MQTTConfig& mqttCfg = mqttManager.getConfig();
+              oledManager.setMode(OLEDManager::MODE_MQTT_INFO);
+              oledManager.showMQTTInfo(mqttManager.isConnected(),
+                                       mqttCfg.server,
+                                       mqttCfg.mainTopic);
+            }
+            break;
+          case 5: // CUSTOM_TEXT
+            {
+              const char* line1 = doc["line1"] | "";
+              const char* line2 = doc["line2"] | "";
+              const char* line3 = doc["line3"] | "";
+              const char* line4 = doc["line4"] | "";
+              oledManager.setMode(OLEDManager::MODE_CUSTOM_TEXT);
+              oledManager.showCustomText(line1, line2, line3, line4);
+            }
+            break;
+          default:
+            request->send(400, "application/json", "{\"error\":\"Invalid mode\"}");
+            return;
+        }
+
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+      }
+    }
+  );
+
   // 404 handler
   server.onNotFound([](AsyncWebServerRequest *request) {
     validateOTABoot();
@@ -1131,6 +1346,9 @@ bool loadConfig() {
 
   // Load MQTT configuration
   mqttManager.loadConfig(doc);
+
+  // Load OLED configuration
+  oledManager.loadConfig(doc);
 
   Serial.println("Configuration loaded from SPIFFS");
   return true;
