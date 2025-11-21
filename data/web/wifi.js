@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // Load current WiFi connection info
 async function loadCurrentConnection() {
     try {
-        const response = await fetch('/api/health/status');
+        const response = await fetch('/api/status');
         const data = await response.json();
 
         if (data.wifi) {

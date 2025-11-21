@@ -25,14 +25,14 @@
 #include "spiffs_manager.h"
 #include "mqtt_manager.h"
 #include "oled_manager.h"
-#include "sht20_manager.h"
+#include "sensor_manager.h"
 
 // Global objects
 WebServerManager webServerManager;
 SPIFFSManager spiffsManager;
 MQTTManager mqttManager;
 OLEDManager oledManager;
-SHT20Manager sht20Manager;
+SensorManager sensorManager;
 
 // NTP Client
 WiFiUDP ntpUDP;
@@ -124,13 +124,16 @@ void setup() {
     oledManager.setMode(OLEDManager::MODE_SENSOR_INFO);
   }
 
-  // Setup SHT20 Sensor (uses same I2C bus as OLED)
-  if (sht20Manager.begin(&Wire, i2cMutex)) {
-    log("SHT20 sensor ready");
+  // Setup Temperature/Humidity Sensor (uses same I2C bus as OLED)
+  // Supports: SHT20, SHT30, SHT40, AM2315 with auto-detection
+  if (sensorManager.begin(&Wire, i2cMutex)) {
+    log("Sensor ready: " + sensorManager.getDetectedSensorName());
+  } else {
+    log("No temperature/humidity sensor detected");
   }
 
   // Setup web server
-  webServerManager.begin(&spiffsManager, &mqttManager, &oledManager, &sht20Manager, &spiffsMutex);
+  webServerManager.begin(&spiffsManager, &mqttManager, &oledManager, &sensorManager, &spiffsMutex);
 
   log("\n=== System Ready ===");
   Serial.print("Web interface: http://");
@@ -166,16 +169,16 @@ void loop() {
                                mqttCfg.server,
                                mqttCfg.mainTopic);
     } else if (oledManager.getMode() == OLEDManager::MODE_SENSOR_INFO) {
-      const SHT20Manager::SHT20Config& sensorCfg = sht20Manager.getConfig();
-      oledManager.showSensorInfo(sht20Manager.isAvailable(),
-                                  sht20Manager.getTemperature(),
-                                  sht20Manager.getHumidity(),
+      const SensorManager::SensorConfig& sensorCfg = sensorManager.getConfig();
+      oledManager.showSensorInfo(sensorManager.isAvailable(),
+                                  sensorManager.getTemperature(),
+                                  sensorManager.getHumidity(),
                                   sensorCfg.fahrenheit);
     }
   }
 
-  // SHT20 sensor update
-  sht20Manager.update();
+  // Sensor update (auto-reads at configured interval)
+  sensorManager.update();
 
   // Small delay to prevent watchdog issues
   delay(10);
@@ -283,8 +286,8 @@ bool loadConfig() {
   // Load OLED configuration
   oledManager.loadConfig(doc);
 
-  // Load SHT20 configuration
-  sht20Manager.loadConfig(doc);
+  // Load Sensor configuration
+  sensorManager.loadConfig(doc);
 
   log("Configuration loaded from SPIFFS");
   return true;

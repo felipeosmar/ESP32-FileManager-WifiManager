@@ -7,11 +7,11 @@
 WebServerManager::WebServerManager() : server(80), ws("/ws"), otaUploadInProgress(false) {
 }
 
-void WebServerManager::begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SHT20Manager* sht20, SemaphoreHandle_t* mutex) {
+void WebServerManager::begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SensorManager* sensor, SemaphoreHandle_t* mutex) {
     this->spiffsManager = spiffs;
     this->mqttManager = mqtt;
     this->oledManager = oled;
-    this->sht20Manager = sht20;
+    this->sensorManager = sensor;
     this->spiffsMutex = mutex;
 
     ws.onEvent([this](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
@@ -336,6 +336,25 @@ void WebServerManager::handleStatus(AsyncWebServerRequest *request) {
     doc["wifi"]["rssi"] = WiFi.RSSI();
     doc["wifi"]["ip"] = WiFi.localIP().toString();
     doc["wifi"]["mac"] = WiFi.macAddress();
+    doc["wifi"]["gateway"] = WiFi.gatewayIP().toString();
+    doc["wifi"]["subnet"] = WiFi.subnetMask().toString();
+    doc["wifi"]["dns"] = WiFi.dnsIP().toString();
+    doc["wifi"]["bssid"] = WiFi.BSSIDstr();
+    doc["wifi"]["channel"] = WiFi.channel();
+
+    // Signal strength description
+    int rssi = WiFi.RSSI();
+    String signalStrength;
+    if (rssi >= -50) {
+        signalStrength = "Excelente";
+    } else if (rssi >= -60) {
+        signalStrength = "Bom";
+    } else if (rssi >= -70) {
+        signalStrength = "Razoável";
+    } else {
+        signalStrength = "Fraco";
+    }
+    doc["wifi"]["signal_strength"] = signalStrength;
 
     // SPIFFS
     doc["spiffs"]["ready"] = spiffsManager->isReady();
@@ -822,19 +841,21 @@ void WebServerManager::handleDisplayMode(AsyncWebServerRequest *request, uint8_t
 void WebServerManager::handleSensorStatus(AsyncWebServerRequest *request) {
     if (!checkAuth(request)) return;
     JsonDocument doc;
-    const SHT20Manager::SHT20Config& cfg = sht20Manager->getConfig();
-    const SHT20Manager::SHT20Data& data = sht20Manager->getData();
+    const SensorManager::SensorConfig& cfg = sensorManager->getConfig();
+    const SensorData& data = sensorManager->getData();
     doc["enabled"] = cfg.enabled;
-    doc["available"] = sht20Manager->isAvailable();
+    doc["available"] = sensorManager->isAvailable();
     doc["valid"] = data.valid;
+    doc["sensor_type"] = sensorTypeToString(sensorManager->getDetectedSensorType());
+    doc["sensor_name"] = sensorManager->getDetectedSensorName();
     if (data.valid) {
-        doc["temperature"] = sht20Manager->getTemperature();
-        doc["temperature_f"] = sht20Manager->getTemperatureFahrenheit();
-        doc["humidity"] = sht20Manager->getHumidity();
+        doc["temperature"] = sensorManager->getTemperature();
+        doc["temperature_f"] = sensorManager->getTemperatureFahrenheit();
+        doc["humidity"] = sensorManager->getHumidity();
         doc["timestamp"] = data.timestamp;
         doc["fahrenheit"] = cfg.fahrenheit;
     }
-    if (!sht20Manager->isAvailable()) doc["error"] = sht20Manager->getLastError();
+    if (!sensorManager->isAvailable()) doc["error"] = sensorManager->getLastError();
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
@@ -843,10 +864,15 @@ void WebServerManager::handleSensorStatus(AsyncWebServerRequest *request) {
 void WebServerManager::handleSensorConfigGet(AsyncWebServerRequest *request) {
     if (!checkAuth(request)) return;
     JsonDocument doc;
-    const SHT20Manager::SHT20Config& cfg = sht20Manager->getConfig();
+    const SensorManager::SensorConfig& cfg = sensorManager->getConfig();
     doc["enabled"] = cfg.enabled;
     doc["read_interval"] = cfg.read_interval;
     doc["fahrenheit"] = cfg.fahrenheit;
+    doc["sensor_type"] = sensorTypeToString(cfg.sensorType);
+    doc["detected_sensor"] = sensorManager->getDetectedSensorName();
+    if (cfg.customAddress > 0) {
+        doc["custom_address"] = cfg.customAddress;
+    }
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
@@ -858,14 +884,20 @@ void WebServerManager::handleSensorConfigPost(AsyncWebServerRequest *request, ui
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
 
-        sht20Manager->updateConfig(doc["enabled"]|false, doc["read_interval"]|60, doc["fahrenheit"]|false);
+        // Parse sensor type if provided
+        SensorType sensorType = SensorType::AUTO;
+        if (doc.containsKey("sensor_type")) {
+            sensorType = stringToSensorType(doc["sensor_type"].as<String>());
+        }
+
+        sensorManager->updateConfig(doc["enabled"]|false, doc["read_interval"]|60, doc["fahrenheit"]|false, sensorType);
 
         if (xSemaphoreTake(*spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
             File configFile = LittleFS.open("/config.json", "r");
             JsonDocument configDoc;
             if (configFile) { deserializeJson(configDoc, configFile); configFile.close(); }
-            
-            sht20Manager->saveConfig(configDoc);
+
+            sensorManager->saveConfig(configDoc);
             
             configFile = LittleFS.open("/config.json", "w");
             if (configFile) {

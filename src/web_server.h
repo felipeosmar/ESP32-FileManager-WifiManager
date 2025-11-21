@@ -8,23 +8,23 @@
 #include "spiffs_manager.h"
 #include "mqtt_manager.h"
 #include "oled_manager.h"
-#include "sht20_manager.h"
+#include "sensor_manager.h"
 #include <AsyncWebSocket.h>
 
 class WebServerManager {
 public:
     WebServerManager();
-    void begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SHT20Manager* sht20, SemaphoreHandle_t* spiffsMutex);
+    void begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SensorManager* sensor, SemaphoreHandle_t* spiffsMutex);
     void loop();
     void broadcastLog(const String& message);
-    
+
 private:
     AsyncWebServer server;
     AsyncWebSocket ws;
     SPIFFSManager* spiffsManager;
     MQTTManager* mqttManager;
     OLEDManager* oledManager;
-    SHT20Manager* sht20Manager;
+    SensorManager* sensorManager;
     SemaphoreHandle_t* spiffsMutex;
     
     bool otaUploadInProgress;

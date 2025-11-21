@@ -138,8 +138,6 @@ function updateMemory(memory) {
         setText('heap-used', formatBytes(heap.used));
         setText('heap-free', formatBytes(heap.free));
         setText('heap-total', formatBytes(heap.total));
-
-        updateProgressBar('heap-progress', heap.usage_percent);
     }
 
     if (memory.psram) {
@@ -150,10 +148,6 @@ function updateMemory(memory) {
         setText('psram-used', formatBytes(psram.used));
         setText('psram-free', formatBytes(psram.free));
         setText('psram-total', formatBytes(psram.total));
-
-        if (psram.total > 0) {
-            updateProgressBar('psram-progress', psram.usage_percent);
-        }
     }
 
     if (memory.sketch) {
@@ -164,8 +158,6 @@ function updateMemory(memory) {
         setText('sketch-used', formatBytes(sketch.used));
         setText('sketch-free', formatBytes(sketch.free));
         setText('sketch-total', formatBytes(sketch.total));
-
-        updateProgressBar('sketch-progress', sketch.usage_percent);
     }
 }
 
@@ -193,8 +185,6 @@ function updateStorage(spiffs, flash) {
         setText('spiffs-used', formatBytes(spiffs.used_bytes));
         setText('spiffs-free', formatBytes(spiffs.free_bytes));
         setText('spiffs-total', formatBytes(spiffs.total_bytes));
-
-        updateProgressBar('spiffs-progress', spiffs.usage_percent);
     }
 
     if (flash) {
@@ -208,25 +198,6 @@ function setText(id, text) {
     const el = document.getElementById(id);
     if (el) {
         el.textContent = text || '--';
-    }
-}
-
-// Update progress bar
-function updateProgressBar(elementId, percentage) {
-    const progressBar = document.getElementById(elementId);
-    if (!progressBar) return;
-
-    // Remove previous color classes
-    progressBar.classList.remove('warning', 'danger');
-
-    // Set width
-    progressBar.style.width = `${Math.min(percentage, 100)}%`;
-
-    // Add color class based on usage
-    if (percentage > 80) {
-        progressBar.classList.add('danger');
-    } else if (percentage > 60) {
-        progressBar.classList.add('warning');
     }
 }
 

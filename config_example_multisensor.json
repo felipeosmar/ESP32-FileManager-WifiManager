@@ -1,8 +1,17 @@
 {
   "wifi": {
-    "ssid": "Escalador",
-    "password": "Escalador@123",
+    "ssid": "Termo-Higrometro",
+    "password": "12345678",
     "ap_mode": false
+  },
+  "mqtt": {
+    "enabled": false,
+    "server": "mqtt.example.com",
+    "port": 1883,
+    "username": "",
+    "password": "",
+    "main_topic": "esp32/data",
+    "client_id": "ESP32_AABBCC"
   },
   "oled": {
     "enabled": true,

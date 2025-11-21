@@ -84,9 +84,6 @@
                     <div class="metric-card">
                         <h3>Heap Memory</h3>
                         <div class="metric-value" id="heap-usage">--</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="heap-progress"></div>
-                        </div>
                         <div class="metric-details">
                             <span>Usado: <strong id="heap-used">--</strong></span>
                             <span>Livre: <strong id="heap-free">--</strong></span>
@@ -97,9 +94,6 @@
                     <div class="metric-card">
                         <h3>PSRAM</h3>
                         <div class="metric-value" id="psram-usage">--</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="psram-progress"></div>
-                        </div>
                         <div class="metric-details">
                             <span>Usado: <strong id="psram-used">--</strong></span>
                             <span>Livre: <strong id="psram-free">--</strong></span>
@@ -110,13 +104,42 @@
                     <div class="metric-card">
                         <h3>Sketch (Flash)</h3>
                         <div class="metric-value" id="sketch-usage">--</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="sketch-progress"></div>
-                        </div>
                         <div class="metric-details">
                             <span>Usado: <strong id="sketch-used">--</strong></span>
                             <span>Livre: <strong id="sketch-free">--</strong></span>
                             <span>Total: <strong id="sketch-total">--</strong></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Storage Section -->
+            <section class="info-section">
+                <h2>💾 Armazenamento</h2>
+                <div class="cards-grid">
+                    <div class="metric-card wide">
+                        <h3>SPIFFS (LittleFS)</h3>
+                        <div class="metric-value" id="spiffs-usage">--</div>
+                        <div class="metric-details">
+                            <span>Usado: <strong id="spiffs-used">--</strong></span>
+                            <span>Livre: <strong id="spiffs-free">--</strong></span>
+                            <span>Total: <strong id="spiffs-total">--</strong></span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">💽</div>
+                        <div class="info-content">
+                            <span class="info-label">Flash Size</span>
+                            <span class="info-value" id="flash-size">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">⚡</div>
+                        <div class="info-content">
+                            <span class="info-label">Flash Speed</span>
+                            <span class="info-value" id="flash-speed">--</span>
                         </div>
                     </div>
                 </div>
@@ -203,41 +226,6 @@
                         <div class="info-content">
                             <span class="info-label">RSSI</span>
                             <span class="info-value" id="wifi-rssi">--</span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Storage Section -->
-            <section class="info-section">
-                <h2>💾 Armazenamento</h2>
-                <div class="cards-grid">
-                    <div class="metric-card wide">
-                        <h3>SPIFFS (LittleFS)</h3>
-                        <div class="metric-value" id="spiffs-usage">--</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="spiffs-progress"></div>
-                        </div>
-                        <div class="metric-details">
-                            <span>Usado: <strong id="spiffs-used">--</strong></span>
-                            <span>Livre: <strong id="spiffs-free">--</strong></span>
-                            <span>Total: <strong id="spiffs-total">--</strong></span>
-                        </div>
-                    </div>
-
-                    <div class="info-card">
-                        <div class="info-icon">💽</div>
-                        <div class="info-content">
-                            <span class="info-label">Flash Size</span>
-                            <span class="info-value" id="flash-size">--</span>
-                        </div>
-                    </div>
-
-                    <div class="info-card">
-                        <div class="info-icon">⚡</div>
-                        <div class="info-content">
-                            <span class="info-label">Flash Speed</span>
-                            <span class="info-value" id="flash-speed">--</span>
                         </div>
                     </div>
                 </div>
