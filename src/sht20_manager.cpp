@@ -6,6 +6,7 @@
 
 SHT20Manager::SHT20Manager()
     : wire(nullptr),
+      i2cMutex(nullptr),
       sensorAvailable(false),
       lastReadTime(0) {
 
@@ -25,19 +26,22 @@ SHT20Manager::~SHT20Manager() {
     // Nothing to clean up
 }
 
-bool SHT20Manager::begin(TwoWire* wireInterface) {
+bool SHT20Manager::begin(TwoWire* wireInterface, SemaphoreHandle_t mutex) {
     if (!config.enabled) {
         Serial.println("SHT20: Disabled in configuration");
         return false;
     }
 
     wire = wireInterface;
+    i2cMutex = mutex;
 
     if (wire == nullptr) {
         lastError = "Wire interface is null";
         Serial.println("SHT20: Wire interface is null");
         return false;
     }
+
+    Serial.printf("SHT20: Starting initialization (mutex: %s)\n", i2cMutex ? "enabled" : "disabled");
 
     // Check if sensor is present
     if (!checkSensor()) {
@@ -120,20 +124,51 @@ bool SHT20Manager::softReset() {
 uint16_t SHT20Manager::readValue(uint8_t command) {
     if (wire == nullptr) return 0;
 
+    // Acquire I2C bus mutex if available
+    bool mutexTaken = false;
+    if (i2cMutex != nullptr) {
+        mutexTaken = (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(1000)) == pdTRUE);
+        if (!mutexTaken) {
+            Serial.println("SHT20: Failed to acquire I2C mutex");
+            return 0;
+        }
+    }
+
+    uint16_t result = 0;
+
     // Send measurement command
     wire->beginTransmission(SHT20_I2C_ADDRESS);
     wire->write(command);
-    if (wire->endTransmission() != 0) {
+    uint8_t txResult = wire->endTransmission();
+
+    if (txResult != 0) {
+        Serial.printf("SHT20: Failed to send command 0x%02X, error: %d\n", command, txResult);
+        if (mutexTaken) xSemaphoreGive(i2cMutex);
         return 0;
     }
 
     // Wait for measurement to complete
-    delay(85); // Max measurement time for 12-bit resolution
+    // Temperature: max 85ms, Humidity: max 29ms for 12-bit resolution
+    delay(100); // Extended delay for safety
 
-    // Request data (2 bytes data + 1 byte CRC)
-    wire->requestFrom(SHT20_I2C_ADDRESS, 3);
+    // Request data (2 bytes data + 1 byte CRC) with timeout
+    size_t bytesReceived = wire->requestFrom((uint8_t)SHT20_I2C_ADDRESS, (uint8_t)3, (uint8_t)true);
+
+    if (bytesReceived != 3) {
+        Serial.printf("SHT20: requestFrom failed, expected 3 bytes, got %d\n", bytesReceived);
+        if (mutexTaken) xSemaphoreGive(i2cMutex);
+        return 0;
+    }
+
+    // Wait for data to be available with timeout
+    unsigned long timeout = millis() + 100;
+    while (wire->available() < 3 && millis() < timeout) {
+        delay(1);
+    }
 
     if (wire->available() < 3) {
+        Serial.printf("SHT20: Data not available, only %d bytes\n", wire->available());
+        if (mutexTaken) xSemaphoreGive(i2cMutex);
         return 0;
     }
 
@@ -144,7 +179,8 @@ uint16_t SHT20Manager::readValue(uint8_t command) {
     // Verify CRC
     uint8_t data[2] = {msb, lsb};
     if (!verifyCRC(data, 2, crc)) {
-        Serial.println("SHT20: CRC verification failed");
+        Serial.printf("SHT20: CRC verification failed (MSB=0x%02X, LSB=0x%02X, CRC=0x%02X)\n", msb, lsb, crc);
+        if (mutexTaken) xSemaphoreGive(i2cMutex);
         return 0;
     }
 
@@ -152,7 +188,14 @@ uint16_t SHT20Manager::readValue(uint8_t command) {
     uint16_t rawValue = (msb << 8) | lsb;
     rawValue &= 0xFFFC; // Clear status bits (last 2 bits)
 
-    return rawValue;
+    result = rawValue;
+
+    // Release mutex
+    if (mutexTaken) {
+        xSemaphoreGive(i2cMutex);
+    }
+
+    return result;
 }
 
 float SHT20Manager::calculateTemperature(uint16_t rawValue) {
@@ -202,7 +245,7 @@ bool SHT20Manager::readSensor() {
     }
 
     // Read temperature
-    uint16_t rawTemp = readValue(SHT20_TRIGGER_TEMP_MEASURE_HOLD);
+    uint16_t rawTemp = readValue(SHT20_TRIGGER_TEMP_MEASURE_NOHOLD);
     if (rawTemp == 0) {
         lastError = "Failed to read temperature";
         data.valid = false;
@@ -210,7 +253,7 @@ bool SHT20Manager::readSensor() {
     }
 
     // Read humidity
-    uint16_t rawHumidity = readValue(SHT20_TRIGGER_HUMD_MEASURE_HOLD);
+    uint16_t rawHumidity = readValue(SHT20_TRIGGER_HUMD_MEASURE_NOHOLD);
     if (rawHumidity == 0) {
         lastError = "Failed to read humidity";
         data.valid = false;

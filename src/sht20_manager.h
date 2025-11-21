@@ -43,7 +43,7 @@ public:
     };
 
     // Initialize sensor
-    bool begin(TwoWire* wire = &Wire);
+    bool begin(TwoWire* wire = &Wire, SemaphoreHandle_t mutex = NULL);
 
     // Load configuration from JSON
     bool loadConfig(const JsonDocument& doc);
@@ -86,6 +86,7 @@ public:
 
 private:
     TwoWire* wire;
+    SemaphoreHandle_t i2cMutex;  // Mutex for I2C bus protection
     SHT20Config config;
     SHT20Data data;
     bool sensorAvailable;

@@ -38,6 +38,9 @@ SHT20Manager sht20Manager;
 // Mutex for SPIFFS access (prevents concurrent access issues)
 SemaphoreHandle_t spiffsMutex = NULL;
 
+// Mutex for I2C bus access (prevents concurrent access between OLED and SHT20)
+SemaphoreHandle_t i2cMutex = NULL;
+
 // OTA update flags
 bool otaUploadInProgress = false;
 bool firstRequestAfterBoot = true;
@@ -58,6 +61,7 @@ String getBuiltinHTML();
 void serveStaticFile(AsyncWebServerRequest *request, const char* filepath, const char* contentType);
 bool isValidESP32Firmware(uint8_t *data, size_t len);
 void validateOTABoot();
+void scanI2CBus();
 
 void setup() {
   Serial.begin(115200);
@@ -67,6 +71,12 @@ void setup() {
   spiffsMutex = xSemaphoreCreateMutex();
   if (spiffsMutex == NULL) {
     Serial.println("Failed to create SPIFFS mutex!");
+  }
+
+  // Create mutex for I2C bus access
+  i2cMutex = xSemaphoreCreateMutex();
+  if (i2cMutex == NULL) {
+    Serial.println("Failed to create I2C mutex!");
   }
 
   // Initialize SPIFFS
@@ -95,6 +105,9 @@ void setup() {
   Wire.setClock(100000);  // Set I2C clock to 100kHz (standard mode)
   Serial.println("I2C: Initialized (SDA=4, SCL=15, 100kHz)");
 
+  // Scan I2C bus for devices
+  scanI2CBus();
+
   // Setup WiFi
   setupWiFi();
 
@@ -104,7 +117,7 @@ void setup() {
   }
 
   // Setup OLED Display
-  if (oledManager.begin()) {
+  if (oledManager.begin(i2cMutex)) {
     // Show logo on startup
     oledManager.showLogo();
     delay(2000);
@@ -113,7 +126,7 @@ void setup() {
   }
 
   // Setup SHT20 Sensor (uses same I2C bus as OLED)
-  if (sht20Manager.begin(&Wire)) {
+  if (sht20Manager.begin(&Wire, i2cMutex)) {
     Serial.println("SHT20 sensor ready");
   }
 
@@ -223,6 +236,17 @@ bool isValidESP32Firmware(uint8_t *data, size_t len) {
  * Validate OTA boot after firmware update
  */
 void validateOTABoot() {
+#ifdef OTA_NO_ROLLBACK
+  // Rollback protection disabled for 2MB flash boards
+  if (!firstRequestAfterBoot) {
+    return;
+  }
+
+  firstRequestAfterBoot = false;
+  Serial.println("OTA rollback protection: DISABLED (2MB flash mode)");
+  return;
+#else
+  // Standard rollback protection for 4MB+ flash boards
   if (!firstRequestAfterBoot) {
     return;
   }
@@ -251,6 +275,7 @@ void validateOTABoot() {
   } else if (ota_state == ESP_OTA_IMG_INVALID) {
     Serial.println("Running from invalid partition (should not happen)");
   }
+#endif
 }
 
 void setupWebServer() {
@@ -348,6 +373,13 @@ void setupWebServer() {
 
     // OTA status
     doc["ota"]["upload_in_progress"] = otaUploadInProgress;
+#ifdef OTA_NO_ROLLBACK
+    doc["ota"]["rollback_enabled"] = false;
+    doc["ota"]["mode"] = "single_partition";
+#else
+    doc["ota"]["rollback_enabled"] = true;
+    doc["ota"]["mode"] = "dual_partition";
+#endif
 
     // Overall health status
     bool isHealthy = WiFi.status() == WL_CONNECTED &&
@@ -1532,6 +1564,45 @@ void serveStaticFile(AsyncWebServerRequest *request, const char* filepath, const
   } else {
     request->send(500, "text/plain", "Failed to serve file");
   }
+}
+
+void scanI2CBus() {
+  Serial.println("\n=== I2C Bus Scan ===");
+  byte error, address;
+  int nDevices = 0;
+
+  for(address = 1; address < 127; address++) {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+    if (error == 0) {
+      Serial.print("I2C device found at address 0x");
+      if (address < 16) Serial.print("0");
+      Serial.print(address, HEX);
+
+      // Identify known devices
+      if (address == 0x3C || address == 0x3D) {
+        Serial.print(" (OLED SSD1306)");
+      } else if (address == 0x40) {
+        Serial.print(" (SHT20 Sensor)");
+      }
+
+      Serial.println();
+      nDevices++;
+    } else if (error == 4) {
+      Serial.print("Unknown error at address 0x");
+      if (address < 16) Serial.print("0");
+      Serial.println(address, HEX);
+    }
+  }
+
+  if (nDevices == 0) {
+    Serial.println("ERROR: No I2C devices found!");
+    Serial.println("Check wiring: SDA=GPIO4, SCL=GPIO15");
+  } else {
+    Serial.printf("Found %d device(s)\n", nDevices);
+  }
+  Serial.println("===================\n");
 }
 
 String getBuiltinHTML() {

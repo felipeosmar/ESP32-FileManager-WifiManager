@@ -45,7 +45,7 @@ public:
     };
 
     // Initialize display
-    bool begin();
+    bool begin(SemaphoreHandle_t mutex = NULL);
 
     // Load configuration from JSON
     bool loadConfig(const JsonDocument& doc);
@@ -91,6 +91,7 @@ public:
 
 private:
     Adafruit_SSD1306* display;  // Changed to pointer to defer initialization
+    SemaphoreHandle_t i2cMutex; // Mutex for I2C bus protection
     OLEDConfig config;
     bool displayAvailable;
     DisplayMode currentMode;
