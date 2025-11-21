@@ -29,7 +29,7 @@ function initConnectionStatus() {
 
     if (statusDot && statusText) {
         // Check connection
-        fetch('/api/health/status')
+        fetch('/api/status')
             .then(response => response.json())
             .then(data => {
                 statusDot.classList.add('connected');
@@ -42,7 +42,7 @@ function initConnectionStatus() {
 
         // Update every 5 seconds
         setInterval(() => {
-            fetch('/api/health/status')
+            fetch('/api/status')
                 .then(response => response.json())
                 .then(data => {
                     statusDot.classList.add('connected');

@@ -3,7 +3,7 @@
 let displayConfig = null;
 
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     loadDisplayConfig();
     checkDisplayStatus();
 
@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('displayConfigForm').addEventListener('submit', saveDisplayConfig);
 
     // Display mode change handler
-    document.getElementById('displayMode').addEventListener('change', function() {
+    document.getElementById('displayMode').addEventListener('change', function () {
         const customSection = document.getElementById('customTextSection');
         if (this.value === '5') { // Custom text mode
             customSection.style.display = 'block';
@@ -41,7 +41,7 @@ async function loadDisplayConfig() {
         document.getElementById('displayAddress').value = data.address || 60;
         document.getElementById('sdaPin').value = data.sda_pin !== undefined ? data.sda_pin : 4;
         document.getElementById('sclPin').value = data.scl_pin !== undefined ? data.scl_pin : 15;
-        document.getElementById('rstPin').value = data.rst_pin !== undefined ? data.rst_pin : 16;
+        document.getElementById('rstPin').value = data.rst_pin !== undefined ? data.rst_pin : -1;
         document.getElementById('autoUpdate').checked = data.auto_update !== false;
         document.getElementById('brightness').value = data.brightness || 128;
         document.getElementById('flipDisplay').checked = data.flip_display || false;

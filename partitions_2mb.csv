@@ -3,9 +3,8 @@
 # Total Flash: 2MB (0x200000)
 # This configuration does NOT support automatic rollback
 # OTA updates will directly overwrite the running application
-nvs,      data, nvs,     0x9000,  0x5000
-otadata,  data, ota,     0xe000,  0x2000
-phy_init, data, phy,     0x10000, 0x1000
-app0,     app,  ota_0,   0x20000, 0x130000
-spiffs,   data, spiffs,  0x150000,0xB0000
+nvs,      data, nvs,     0x9000,  0x5000,
+otadata,  data, ota,     0xe000,  0x2000,
+app0,     app,  ota_0,   0x10000, 0x130000,
+spiffs,   data, spiffs,  0x140000,0xC0000,
 # Note: app1 (ota_1) is omitted to save space - no rollback capability

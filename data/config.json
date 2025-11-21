@@ -16,7 +16,7 @@
   },
   "sht20": {
     "enabled": true,
-    "read_interval": 180,
+    "read_interval": 5,
     "fahrenheit": false
   }
 }

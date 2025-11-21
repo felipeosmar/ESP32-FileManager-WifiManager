@@ -3,6 +3,7 @@
  */
 
 #include "oled_manager.h"
+#include "config.h"
 
 OLEDManager::OLEDManager()
     : display(nullptr),
@@ -17,7 +18,7 @@ OLEDManager::OLEDManager()
     config.address = 0x3C;  // Most common I2C address
     config.sda_pin = 4;     // Custom SDA pin
     config.scl_pin = 15;    // Custom SCL pin
-    config.rst_pin = 16;    // Custom RST pin
+    config.rst_pin = PIN_OLED_RST;  // Reset pin from config.h
     config.auto_update = true;
     config.brightness = 128;
     config.flip_display = false;
@@ -45,10 +46,13 @@ bool OLEDManager::begin(SemaphoreHandle_t mutex) {
     // NOTE: Wire.begin() should be called BEFORE this function in main.cpp
     // to avoid conflicts with other I2C devices on the same bus
 
-    // Create the display object AFTER Wire.begin() has been called
-    display = new Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+    // Create display object with optional reset pin
+    if (display != NULL) {
+        delete display;
+    }
+    display = new Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, config.rst_pin);
 
-    // Configure reset pin if specified
+    // Reset OLED if pin is defined
     if (config.rst_pin >= 0) {
         pinMode(config.rst_pin, OUTPUT);
         digitalWrite(config.rst_pin, LOW);
@@ -56,7 +60,6 @@ bool OLEDManager::begin(SemaphoreHandle_t mutex) {
         digitalWrite(config.rst_pin, HIGH);
         delay(10);
     }
-
     // Try to initialize display
     bool initSuccess = false;
     if (i2cMutex != nullptr) {
@@ -80,7 +83,7 @@ bool OLEDManager::begin(SemaphoreHandle_t mutex) {
     }
 
     displayAvailable = true;
-    Serial.printf("OLED: Initialized at address 0x%02X (SDA=%d, SCL=%d, RST=%d)\n",
+    Serial.printf("OLED: Initialized (Addr: 0x%02X, SDA: %d, SCL: %d, RST: %d)\n", 
                   config.address, config.sda_pin, config.scl_pin, config.rst_pin);
 
     // Configure display
@@ -118,7 +121,7 @@ bool OLEDManager::loadConfig(const JsonDocument& doc) {
     config.address = oled["address"] | 0x3C;
     config.sda_pin = oled["sda_pin"] | 4;
     config.scl_pin = oled["scl_pin"] | 15;
-    config.rst_pin = oled["rst_pin"] | 16;
+    config.rst_pin = oled["rst_pin"] | PIN_OLED_RST;
     config.auto_update = oled["auto_update"] | true;
     config.brightness = oled["brightness"] | 128;
     config.flip_display = oled["flip_display"] | false;
@@ -147,8 +150,7 @@ void OLEDManager::saveConfig(JsonDocument& doc) {
     oled["flip_display"] = config.flip_display;
 }
 
-void OLEDManager::updateConfig(bool enabled, uint8_t address, uint8_t sda, uint8_t scl, int8_t rst,
-                               bool autoUpdate, uint8_t brightness, bool flip) {
+void OLEDManager::updateConfig(bool enabled, uint8_t address, uint8_t sda, uint8_t scl, int8_t rst, bool autoUpdate, uint8_t brightness, bool flip) {
     config.enabled = enabled;
     config.address = address;
     config.sda_pin = sda;

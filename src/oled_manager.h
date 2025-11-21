@@ -54,8 +54,7 @@ public:
     void saveConfig(JsonDocument& doc);
 
     // Update configuration
-    void updateConfig(bool enabled, uint8_t address, uint8_t sda, uint8_t scl, int8_t rst,
-                     bool autoUpdate, uint8_t brightness, bool flip);
+    void updateConfig(bool enabled, uint8_t address, uint8_t sda, uint8_t scl, int8_t rst, bool auto_update, uint8_t brightness, bool flip_display);
 
     // Get configuration
     const OLEDConfig& getConfig() const { return config; }

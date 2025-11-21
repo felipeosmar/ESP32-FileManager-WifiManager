@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Display OLED - ESP32</title>
     <link rel="stylesheet" href="unified.css">
 </head>
+
 <body>
     <div class="container">
         <div id="header-placeholder"></div>
@@ -58,54 +60,31 @@
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
                         <div class="form-group">
                             <label for="sdaPin">Pino SDA</label>
-                            <input type="number"
-                                   id="sdaPin"
-                                   name="sda_pin"
-                                   class="form-input"
-                                   value="4"
-                                   min="0"
-                                   max="39"
-                                   required>
+                            <input type="number" id="sdaPin" name="sda_pin" class="form-input" value="4" min="0"
+                                max="39" required>
                             <small style="color: var(--text-light);">GPIO para SDA (padrão: 4)</small>
                         </div>
 
                         <div class="form-group">
                             <label for="sclPin">Pino SCL</label>
-                            <input type="number"
-                                   id="sclPin"
-                                   name="scl_pin"
-                                   class="form-input"
-                                   value="15"
-                                   min="0"
-                                   max="39"
-                                   required>
+                            <input type="number" id="sclPin" name="scl_pin" class="form-input" value="15" min="0"
+                                max="39" required>
                             <small style="color: var(--text-light);">GPIO para SCL (padrão: 15)</small>
                         </div>
 
                         <div class="form-group">
                             <label for="rstPin">Pino RST</label>
-                            <input type="number"
-                                   id="rstPin"
-                                   name="rst_pin"
-                                   class="form-input"
-                                   value="16"
-                                   min="-1"
-                                   max="39">
-                            <small style="color: var(--text-light);">GPIO para RST (padrão: 16)</small>
+                            <input type="number" id="rstPin" name="rst_pin" class="form-input" value="-1" min="-1"
+                                max="39">
+                            <small style="color: var(--text-light);">GPIO para RST (padrão: -1, desabilitado)</small>
                         </div>
                     </div>
 
                     <!-- Display Settings -->
                     <div class="form-group">
                         <label for="brightness">Brilho</label>
-                        <input type="range"
-                               id="brightness"
-                               name="brightness"
-                               class="form-input"
-                               min="0"
-                               max="255"
-                               value="128"
-                               oninput="updateBrightnessValue(this.value)">
+                        <input type="range" id="brightness" name="brightness" class="form-input" min="0" max="255"
+                            value="128" oninput="updateBrightnessValue(this.value)">
                         <small style="color: var(--text-light);">
                             Valor: <span id="brightnessValue">128</span> (0-255)
                         </small>
@@ -212,7 +191,7 @@
                         <li>Conecte GND ao GND do ESP32</li>
                         <li>Conecte SDA ao GPIO 21 (ou conforme configurado)</li>
                         <li>Conecte SCL ao GPIO 22 (ou conforme configurado)</li>
-                        <li>Conecte RST ao GPIO configurado (opcional, use -1 para sem reset)</li>
+                        <li>Conecte RST ao GPIO configurado (opcional, use -1 para desabilitar)</li>
                     </ul>
                 </div>
             </section>
@@ -249,4 +228,5 @@
     </script>
     <script src="display.js"></script>
 </body>
+
 </html>

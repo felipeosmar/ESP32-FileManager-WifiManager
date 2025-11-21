@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 System Health</title>
+    <title>Status do Sistema</title>
     <link rel="stylesheet" href="unified.css">
 </head>
+
 <body>
     <div class="container">
         <div id="header-placeholder"></div>
@@ -22,6 +24,55 @@
                     </div>
                     <div class="refresh-btn" onclick="refreshHealth()">
                         <span class="refresh-icon">🔄</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- System Info Section -->
+            <section class="info-section">
+                <h2>ℹ️ Sistema</h2>
+                <div class="cards-grid">
+                    <div class="info-card">
+                        <div class="info-icon">🕒</div>
+                        <div class="info-content">
+                            <span class="info-label">Compilado em</span>
+                            <span class="info-value" id="system-compile">--</span>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-icon">🔄</div>
+                        <div class="info-content">
+                            <span class="info-label">Motivo Reset</span>
+                            <span class="info-value" id="system-reset">--</span>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-icon">🖥️</div>
+                        <div class="info-content">
+                            <span class="info-label">Chip Model</span>
+                            <span class="info-value" id="cpu-model">--</span>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-icon">🔧</div>
+                        <div class="info-content">
+                            <span class="info-label">Revisão</span>
+                            <span class="info-value" id="cpu-revision">--</span>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-icon">⚡</div>
+                        <div class="info-content">
+                            <span class="info-label">Freq. CPU</span>
+                            <span class="info-value" id="cpu-freq">--</span>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-icon">⚙️</div>
+                        <div class="info-content">
+                            <span class="info-label">SDK Version</span>
+                            <span class="info-value" id="sdk-version">--</span>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -55,12 +106,25 @@
                             <span>Total: <strong id="psram-total">--</strong></span>
                         </div>
                     </div>
+
+                    <div class="metric-card">
+                        <h3>Sketch (Flash)</h3>
+                        <div class="metric-value" id="sketch-usage">--</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="sketch-progress"></div>
+                        </div>
+                        <div class="metric-details">
+                            <span>Usado: <strong id="sketch-used">--</strong></span>
+                            <span>Livre: <strong id="sketch-free">--</strong></span>
+                            <span>Total: <strong id="sketch-total">--</strong></span>
+                        </div>
+                    </div>
                 </div>
             </section>
 
             <!-- WiFi Section -->
             <section class="info-section">
-                <h2>📶 WiFi</h2>
+                <h2>📶 Rede</h2>
                 <div class="cards-grid">
                     <div class="info-card">
                         <div class="info-icon">📡</div>
@@ -87,10 +151,42 @@
                     </div>
 
                     <div class="info-card">
+                        <div class="info-icon">🚪</div>
+                        <div class="info-content">
+                            <span class="info-label">Gateway</span>
+                            <span class="info-value" id="wifi-gateway">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">🎭</div>
+                        <div class="info-content">
+                            <span class="info-label">Subnet</span>
+                            <span class="info-value" id="wifi-subnet">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">🔍</div>
+                        <div class="info-content">
+                            <span class="info-label">DNS</span>
+                            <span class="info-value" id="wifi-dns">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
                         <div class="info-icon">🔢</div>
                         <div class="info-content">
                             <span class="info-label">MAC Address</span>
                             <span class="info-value" id="wifi-mac">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="info-icon">🆔</div>
+                        <div class="info-content">
+                            <span class="info-label">BSSID</span>
+                            <span class="info-value" id="wifi-bssid">--</span>
                         </div>
                     </div>
 
@@ -112,59 +208,20 @@
                 </div>
             </section>
 
-            <!-- SD Card Section -->
+            <!-- Storage Section -->
             <section class="info-section">
-                <h2>💿 Cartão SD</h2>
+                <h2>💾 Armazenamento</h2>
                 <div class="cards-grid">
                     <div class="metric-card wide">
-                        <h3>Armazenamento</h3>
-                        <div class="metric-value" id="sd-usage">--</div>
+                        <h3>SPIFFS (LittleFS)</h3>
+                        <div class="metric-value" id="spiffs-usage">--</div>
                         <div class="progress-bar">
-                            <div class="progress-fill" id="sd-progress"></div>
+                            <div class="progress-fill" id="spiffs-progress"></div>
                         </div>
                         <div class="metric-details">
-                            <span>Usado: <strong id="sd-used">--</strong></span>
-                            <span>Livre: <strong id="sd-free">--</strong></span>
-                            <span>Total: <strong id="sd-total">--</strong></span>
-                            <span>Tipo: <strong id="sd-type">--</strong></span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- CPU & Flash Section -->
-            <section class="info-section">
-                <h2>⚙️ Hardware</h2>
-                <div class="cards-grid">
-                    <div class="info-card">
-                        <div class="info-icon">🖥️</div>
-                        <div class="info-content">
-                            <span class="info-label">Chip Model</span>
-                            <span class="info-value" id="cpu-model">--</span>
-                        </div>
-                    </div>
-
-                    <div class="info-card">
-                        <div class="info-icon">🔧</div>
-                        <div class="info-content">
-                            <span class="info-label">Revisão</span>
-                            <span class="info-value" id="cpu-revision">--</span>
-                        </div>
-                    </div>
-
-                    <div class="info-card">
-                        <div class="info-icon">⚡</div>
-                        <div class="info-content">
-                            <span class="info-label">Frequência CPU</span>
-                            <span class="info-value" id="cpu-freq">--</span>
-                        </div>
-                    </div>
-
-                    <div class="info-card">
-                        <div class="info-icon">🧮</div>
-                        <div class="info-content">
-                            <span class="info-label">Cores</span>
-                            <span class="info-value" id="cpu-cores">--</span>
+                            <span>Usado: <strong id="spiffs-used">--</strong></span>
+                            <span>Livre: <strong id="spiffs-free">--</strong></span>
+                            <span>Total: <strong id="spiffs-total">--</strong></span>
                         </div>
                     </div>
 
@@ -177,10 +234,10 @@
                     </div>
 
                     <div class="info-card">
-                        <div class="info-icon">⚙️</div>
+                        <div class="info-icon">⚡</div>
                         <div class="info-content">
-                            <span class="info-label">SDK Version</span>
-                            <span class="info-value" id="sdk-version">--</span>
+                            <span class="info-label">Flash Speed</span>
+                            <span class="info-value" id="flash-speed">--</span>
                         </div>
                     </div>
                 </div>
@@ -204,14 +261,15 @@
         </main>
 
         <footer>
-            <p>ESP32 System Health Monitor v1.0 | Última atualização: <span id="last-update">--</span></p>
+            <p>ESP32 System Status v1.0 | Última atualização: <span id="last-update">--</span></p>
         </footer>
     </div>
 
     <script src="header.js"></script>
     <script>
-        loadHeader('🏥 ESP32 System Health');
+        loadHeader('📊 Status do Sistema');
     </script>
-    <script src="health.js"></script>
+    <script src="status.js"></script>
 </body>
+
 </html>

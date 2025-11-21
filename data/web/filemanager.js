@@ -245,6 +245,17 @@ async function uploadFile(file) {
 
 // File editing functions
 let currentEditFile = '';
+let editor = null;
+
+// Initialize Ace Editor
+function initEditor() {
+    if (!editor) {
+        editor = ace.edit("fileEditor");
+        editor.setTheme("ace/theme/monokai");
+        editor.session.setMode("ace/mode/text");
+        editor.setFontSize(14);
+    }
+}
 
 async function editFile(name, event) {
     event.stopPropagation();
@@ -267,16 +278,33 @@ async function editFile(name, event) {
         }
 
         // Open modal and populate editor
+        // Open modal and populate editor
         document.getElementById('editorTitle').textContent = '✏️ Editar: ' + name;
-        document.getElementById('fileEditor').value = data.content;
         document.getElementById('editorModal').style.display = 'flex';
+
+        // Initialize editor if needed and set content
+        initEditor();
+
+        // Detect mode based on extension
+        const ext = name.split('.').pop().toLowerCase();
+        let mode = "ace/mode/text";
+        if (ext === 'js') mode = "ace/mode/javascript";
+        else if (ext === 'html') mode = "ace/mode/html";
+        else if (ext === 'css') mode = "ace/mode/css";
+        else if (ext === 'json') mode = "ace/mode/json";
+        else if (ext === 'cpp' || ext === 'h' || ext === 'ino') mode = "ace/mode/c_cpp";
+        else if (ext === 'py') mode = "ace/mode/python";
+
+        editor.session.setMode(mode);
+        editor.setValue(data.content, -1); // -1 moves cursor to start
+        editor.focus();
     } catch (error) {
         alert('Erro ao carregar arquivo: ' + error.message);
     }
 }
 
 async function saveFile() {
-    const content = document.getElementById('fileEditor').value;
+    const content = editor.getValue();
     const formData = new FormData();
     formData.append('file', currentEditFile);
     formData.append('content', content);
@@ -304,12 +332,14 @@ async function saveFile() {
 
 function closeEditor() {
     document.getElementById('editorModal').style.display = 'none';
-    document.getElementById('fileEditor').value = '';
+    if (editor) {
+        editor.setValue('');
+    }
     currentEditFile = '';
 }
 
 // Close modal when clicking outside
-window.onclick = function(event) {
+window.onclick = function (event) {
     const modal = document.getElementById('editorModal');
     if (event.target === modal) {
         closeEditor();

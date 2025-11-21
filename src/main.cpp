@@ -15,13 +15,12 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
-#include <Update.h>
-#include <esp_ota_ops.h>
-#include <esp_partition.h>
 #include <esp_task_wdt.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include "config.h"
 #include "web_server.h"
 #include "spiffs_manager.h"
 #include "mqtt_manager.h"
@@ -29,21 +28,21 @@
 #include "sht20_manager.h"
 
 // Global objects
-AsyncWebServer server(80);
+WebServerManager webServerManager;
 SPIFFSManager spiffsManager;
 MQTTManager mqttManager;
 OLEDManager oledManager;
 SHT20Manager sht20Manager;
+
+// NTP Client
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", -10800, 60000); // UTC-3 (Brazil), update every 60s
 
 // Mutex for SPIFFS access (prevents concurrent access issues)
 SemaphoreHandle_t spiffsMutex = NULL;
 
 // Mutex for I2C bus access (prevents concurrent access between OLED and SHT20)
 SemaphoreHandle_t i2cMutex = NULL;
-
-// OTA update flags
-bool otaUploadInProgress = false;
-bool firstRequestAfterBoot = true;
 
 // Configuration
 struct Config {
@@ -54,62 +53,62 @@ struct Config {
 
 // Function declarations
 void setupWiFi();
-void setupWebServer();
 bool loadConfig();
 void setDefaultConfig();
-String getBuiltinHTML();
-void serveStaticFile(AsyncWebServerRequest *request, const char* filepath, const char* contentType);
-bool isValidESP32Firmware(uint8_t *data, size_t len);
-void validateOTABoot();
 void scanI2CBus();
+void log(const String& msg);
 
 void setup() {
-  Serial.begin(115200);
-  Serial.println("\n\n=== ESP32 File Manager (SPIFFS) ===");
+  Serial.begin(SERIAL_BAUD_RATE);
+  log("\n\n=== ESP32 File Manager (SPIFFS) ===");
 
   // Create mutex for SPIFFS access
   spiffsMutex = xSemaphoreCreateMutex();
   if (spiffsMutex == NULL) {
-    Serial.println("Failed to create SPIFFS mutex!");
+    log("Failed to create SPIFFS mutex!");
   }
 
   // Create mutex for I2C bus access
   i2cMutex = xSemaphoreCreateMutex();
   if (i2cMutex == NULL) {
-    Serial.println("Failed to create I2C mutex!");
+    log("Failed to create I2C mutex!");
   }
 
   // Initialize SPIFFS
-  Serial.println("Initializing LittleFS...");
+  log("Initializing LittleFS...");
   if (!spiffsManager.begin()) {
-    Serial.println("SPIFFS initialization failed!");
-    Serial.println("ERROR: Cannot continue without SPIFFS");
+    log("SPIFFS initialization failed!");
+    log("ERROR: Cannot continue without SPIFFS");
     while(1) {
       delay(1000);
       Serial.println("System halted - SPIFFS required");
     }
   } else {
-    Serial.println("LittleFS initialized successfully");
+    log("LittleFS initialized successfully");
   }
 
   // Load configuration from SPIFFS
   if (!loadConfig()) {
-    Serial.println("Failed to load config, using defaults");
+    log("Failed to load config, using defaults");
     setDefaultConfig();
   }
 
   // Initialize I2C bus FIRST, before any I2C device initialization
   // Both OLED and SHT20 share the same I2C bus (SDA=4, SCL=15)
   // CRITICAL: This must be done BEFORE creating/initializing I2C devices
-  Wire.begin(4, 15);
-  Wire.setClock(100000);  // Set I2C clock to 100kHz (standard mode)
-  Serial.println("I2C: Initialized (SDA=4, SCL=15, 100kHz)");
+  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+  Wire.setClock(I2C_CLOCK_SPEED);
+  Serial.printf("I2C: Initialized (SDA=%d, SCL=%d, %dHz)\n", PIN_I2C_SDA, PIN_I2C_SCL, I2C_CLOCK_SPEED);
 
   // Scan I2C bus for devices
   scanI2CBus();
 
   // Setup WiFi
   setupWiFi();
+
+  // Initialize NTP
+  timeClient.begin();
+  log("NTP Client started");
 
   // Setup MQTT (after WiFi is connected)
   if (mqttManager.begin()) {
@@ -127,20 +126,26 @@ void setup() {
 
   // Setup SHT20 Sensor (uses same I2C bus as OLED)
   if (sht20Manager.begin(&Wire, i2cMutex)) {
-    Serial.println("SHT20 sensor ready");
+    log("SHT20 sensor ready");
   }
 
   // Setup web server
-  setupWebServer();
+  webServerManager.begin(&spiffsManager, &mqttManager, &oledManager, &sht20Manager, &spiffsMutex);
 
-  Serial.println("\n=== System Ready ===");
+  log("\n=== System Ready ===");
   Serial.print("Web interface: http://");
   Serial.print(WiFi.localIP());
   Serial.println("/");
-  Serial.println("====================\n");
+  log("====================\n");
 }
 
 void loop() {
+  // Update NTP
+  timeClient.update();
+  
+  // Update WebServer (WebSocket)
+  webServerManager.loop();
+
   // MQTT loop - handle reconnection and message processing
   mqttManager.loop();
 
@@ -177,7 +182,7 @@ void loop() {
 }
 
 void setupWiFi() {
-  Serial.println("Setting up WiFi...");
+  log("Setting up WiFi...");
 
   if (config.apMode) {
     // Access Point mode
@@ -204,1305 +209,50 @@ void setupWiFi() {
       Serial.println(WiFi.localIP());
     } else {
       Serial.println("\nFailed to connect, switching to AP mode");
-      WiFi.softAP("ESP32-FileManager", "12345678");
+      WiFi.softAP(WIFI_SSID_DEFAULT, WIFI_PASS_DEFAULT);
       Serial.print("AP IP: ");
       Serial.println(WiFi.softAPIP());
     }
   }
 }
 
-/**
- * Validate ESP32 firmware binary format
- * ESP32 binaries start with magic byte 0xE9
- */
-bool isValidESP32Firmware(uint8_t *data, size_t len) {
-  if (len < 1) {
-    Serial.println("Firmware validation failed: data too short");
-    return false;
-  }
-
-  const uint8_t ESP32_MAGIC_BYTE = 0xE9;
-
-  if (data[0] != ESP32_MAGIC_BYTE) {
-    Serial.printf("Invalid firmware: magic byte is 0x%02X, expected 0xE9\n", data[0]);
-    return false;
-  }
-
-  Serial.println("Firmware validation passed: ESP32 magic byte detected");
-  return true;
-}
-
-/**
- * Validate OTA boot after firmware update
- */
-void validateOTABoot() {
-#ifdef OTA_NO_ROLLBACK
-  // Rollback protection disabled for 2MB flash boards
-  if (!firstRequestAfterBoot) {
-    return;
-  }
-
-  firstRequestAfterBoot = false;
-  Serial.println("OTA rollback protection: DISABLED (2MB flash mode)");
-  return;
-#else
-  // Standard rollback protection for 4MB+ flash boards
-  if (!firstRequestAfterBoot) {
-    return;
-  }
-
-  firstRequestAfterBoot = false;
-
-  const esp_partition_t *running = esp_ota_get_running_partition();
-  esp_ota_img_states_t ota_state;
-
-  if (esp_ota_get_state_partition(running, &ota_state) != ESP_OK) {
-    Serial.println("Failed to get OTA partition state");
-    return;
-  }
-
-  if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
-    Serial.println("First boot after OTA update detected");
-    Serial.println("Web server responding successfully - marking partition valid");
-
-    if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
-      Serial.println("OTA update validated successfully - rollback cancelled");
-    } else {
-      Serial.println("Failed to mark OTA partition valid");
-    }
-  } else if (ota_state == ESP_OTA_IMG_VALID) {
-    Serial.println("Running from valid OTA partition");
-  } else if (ota_state == ESP_OTA_IMG_INVALID) {
-    Serial.println("Running from invalid partition (should not happen)");
-  }
-#endif
-}
-
-void setupWebServer() {
-  Serial.println("Setting up web server...");
-
-  // Serve static files from SPIFFS
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    validateOTABoot();
-    if (spiffsManager.isReady()) {
-      request->send(LittleFS, "/web/index.html", "text/html");
-    } else {
-      request->send(200, "text/html", getBuiltinHTML());
-    }
-  });
-
-  server.on("/unified.css", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serveStaticFile(request, "/web/unified.css", "text/css");
-  });
-
-  server.on("/app.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serveStaticFile(request, "/web/app.js", "application/javascript");
-  });
-
-  server.on("/header.html", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serveStaticFile(request, "/web/header.html", "text/html");
-  });
-
-  server.on("/header.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serveStaticFile(request, "/web/header.js", "application/javascript");
-  });
-
-  // Health check endpoint
-  server.on("/api/health/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-    JsonDocument doc;
-
-    // System uptime
-    unsigned long uptimeMs = millis();
-    unsigned long uptimeSec = uptimeMs / 1000;
-    unsigned long days = uptimeSec / 86400;
-    unsigned long hours = (uptimeSec % 86400) / 3600;
-    unsigned long minutes = (uptimeSec % 3600) / 60;
-    unsigned long seconds = uptimeSec % 60;
-
-    doc["uptime"]["milliseconds"] = uptimeMs;
-    doc["uptime"]["formatted"] = String(days) + "d " + String(hours) + "h " +
-                                  String(minutes) + "m " + String(seconds) + "s";
-
-    // Memory information
-    doc["memory"]["heap"]["total"] = ESP.getHeapSize();
-    doc["memory"]["heap"]["free"] = ESP.getFreeHeap();
-    doc["memory"]["heap"]["used"] = ESP.getHeapSize() - ESP.getFreeHeap();
-    doc["memory"]["heap"]["usage_percent"] = ((float)(ESP.getHeapSize() - ESP.getFreeHeap()) / ESP.getHeapSize()) * 100;
-
-    doc["memory"]["psram"]["total"] = ESP.getPsramSize();
-    doc["memory"]["psram"]["free"] = ESP.getFreePsram();
-    doc["memory"]["psram"]["used"] = ESP.getPsramSize() - ESP.getFreePsram();
-    if (ESP.getPsramSize() > 0) {
-      doc["memory"]["psram"]["usage_percent"] = ((float)(ESP.getPsramSize() - ESP.getFreePsram()) / ESP.getPsramSize()) * 100;
-    }
-
-    // WiFi information
-    doc["wifi"]["connected"] = WiFi.status() == WL_CONNECTED;
-    doc["wifi"]["ssid"] = WiFi.SSID();
-    doc["wifi"]["rssi"] = WiFi.RSSI();
-    doc["wifi"]["signal_strength"] = WiFi.RSSI() > -50 ? "Excellent" :
-                                      WiFi.RSSI() > -60 ? "Good" :
-                                      WiFi.RSSI() > -70 ? "Fair" : "Weak";
-    doc["wifi"]["ip"] = WiFi.localIP().toString();
-    doc["wifi"]["mac"] = WiFi.macAddress();
-    doc["wifi"]["channel"] = WiFi.channel();
-
-    // SPIFFS information
-    doc["spiffs"]["ready"] = spiffsManager.isReady();
-    if (spiffsManager.isReady()) {
-      size_t totalBytes = LittleFS.totalBytes();
-      size_t usedBytes = LittleFS.usedBytes();
-      size_t freeBytes = totalBytes - usedBytes;
-
-      doc["spiffs"]["total_bytes"] = totalBytes;
-      doc["spiffs"]["used_bytes"] = usedBytes;
-      doc["spiffs"]["free_bytes"] = freeBytes;
-      doc["spiffs"]["usage_percent"] = totalBytes > 0 ? ((float)usedBytes / totalBytes) * 100 : 0;
-    }
-
-    // CPU information
-    doc["cpu"]["frequency_mhz"] = ESP.getCpuFreqMHz();
-    doc["cpu"]["cores"] = 2;
-    doc["cpu"]["chip_model"] = ESP.getChipModel();
-    doc["cpu"]["chip_revision"] = ESP.getChipRevision();
-    doc["cpu"]["sdk_version"] = ESP.getSdkVersion();
-
-    // Flash information
-    doc["flash"]["size_mb"] = ESP.getFlashChipSize() / (1024 * 1024);
-    doc["flash"]["speed_mhz"] = ESP.getFlashChipSpeed() / 1000000;
-
-    // OTA status
-    doc["ota"]["upload_in_progress"] = otaUploadInProgress;
-#ifdef OTA_NO_ROLLBACK
-    doc["ota"]["rollback_enabled"] = false;
-    doc["ota"]["mode"] = "single_partition";
-#else
-    doc["ota"]["rollback_enabled"] = true;
-    doc["ota"]["mode"] = "dual_partition";
-#endif
-
-    // Overall health status
-    bool isHealthy = WiFi.status() == WL_CONNECTED &&
-                     ESP.getFreeHeap() > 50000 &&
-                     (spiffsManager.isReady() && LittleFS.totalBytes() > LittleFS.usedBytes());
-
-    doc["status"] = isHealthy ? "healthy" : "degraded";
-    doc["timestamp"] = uptimeMs;
-
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
-  // Serve JS file for File Manager
-  server.on("/filemanager.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serveStaticFile(request, "/web/filemanager.js", "application/javascript");
-  });
-
-  // Serve JS file for Health Monitor
-  server.on("/health.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serveStaticFile(request, "/web/health.js", "application/javascript");
-  });
-
-  // Health Monitor page
-  server.on("/health", HTTP_GET, [](AsyncWebServerRequest *request) {
-    validateOTABoot();
-    if (spiffsManager.isReady()) {
-      request->send(LittleFS, "/web/health.html", "text/html");
-    } else {
-      request->send(503, "text/html",
-        "<html><body><h1>Health Monitor unavailable</h1>"
-        "<p>SPIFFS is required for Health Monitor functionality.</p>"
-        "<a href='/'>Back to Home</a></body></html>");
-    }
-  });
-
-  // File Manager page
-  server.on("/filemanager", HTTP_GET, [](AsyncWebServerRequest *request) {
-    validateOTABoot();
-    if (spiffsManager.isReady()) {
-      request->send(LittleFS, "/web/filemanager.html", "text/html");
-    } else {
-      request->send(503, "text/html",
-        "<html><body><h1>File Manager unavailable</h1>"
-        "<p>SPIFFS is required for File Manager functionality.</p>"
-        "<a href='/'>Back to Home</a></body></html>");
-    }
-  });
-
-  // Firmware update page
-  server.on("/firmware", HTTP_GET, [](AsyncWebServerRequest *request) {
-    validateOTABoot();
-    if (spiffsManager.isReady()) {
-      request->send(LittleFS, "/web/firmware.html", "text/html");
-    } else {
-      request->send(503, "text/html",
-        "<html><body><h1>Firmware Update unavailable</h1>"
-        "<p>SPIFFS is required for Firmware Update functionality.</p>"
-        "<a href='/'>Back to Home</a></body></html>");
-    }
-  });
-
-  // Serve JS file for Firmware Update
-  server.on("/firmware.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serveStaticFile(request, "/web/firmware.js", "application/javascript");
-  });
-
-  // OTA Firmware Upload endpoint
-  static String otaUploadError = "";
-
-  server.on("/api/firmware/upload", HTTP_POST,
-    [](AsyncWebServerRequest *request) {
-      if (otaUploadInProgress) {
-        xSemaphoreGive(spiffsMutex);
-        otaUploadInProgress = false;
-        Serial.println("OTA upload finished - SPIFFS mutex released");
-      }
-
-      if (otaUploadError.length() > 0) {
-        Serial.printf("OTA Upload error: %s\n", otaUploadError.c_str());
-        request->send(500, "application/json",
-          "{\"error\":\"" + otaUploadError + "\"}");
-        otaUploadError = "";
-        return;
-      }
-
-      if (Update.hasError()) {
-        String error = "Update failed. Error: ";
-        error += Update.errorString();
-        Serial.println(error);
-        request->send(500, "application/json",
-          "{\"error\":\"" + error + "\"}");
-        return;
-      }
-
-      Serial.println("OTA Update successful! Rebooting...");
-      request->send(200, "application/json",
-        "{\"status\":\"ok\",\"message\":\"Firmware updated successfully. Device will reboot now.\"}");
-
-      delay(2000);
-      Serial.println("Restarting ESP32 now...");
-      ESP.restart();
-    },
-
-    [](AsyncWebServerRequest *request, String filename, size_t index,
-       uint8_t *data, size_t len, bool final) {
-
-      if (index == 0) {
-        Serial.printf("\n=== OTA Update started: %s ===\n", filename.c_str());
-        Serial.printf("File size: %d bytes\n", request->contentLength());
-        otaUploadError = "";
-
-        esp_task_wdt_delete(xTaskGetIdleTaskHandleForCPU(0));
-        esp_task_wdt_delete(xTaskGetIdleTaskHandleForCPU(1));
-
-        Serial.printf("Free heap before OTA: %d bytes\n", ESP.getFreeHeap());
-
-        if (xSemaphoreTake(spiffsMutex, pdMS_TO_TICKS(10000)) != pdTRUE) {
-          Serial.println("ERROR: SPIFFS busy - mutex timeout");
-          otaUploadError = "SPIFFS is busy";
-          return;
+void scanI2CBus() {
+    byte error, address;
+    int nDevices;
+ 
+    log("Scanning I2C bus...");
+ 
+    nDevices = 0;
+    for(address = 1; address < 127; address++ )
+    {
+        // The i2c_scanner uses the return value of
+        // the Write.endTransmisstion to see if
+        // a device did acknowledge to the address.
+        Wire.beginTransmission(address);
+        error = Wire.endTransmission();
+ 
+        if (error == 0)
+        {
+            Serial.print("I2C device found at address 0x");
+            if (address<16)
+                Serial.print("0");
+            Serial.print(address,HEX);
+            Serial.println("  !");
+ 
+            nDevices++;
         }
-        otaUploadInProgress = true;
-
-        if (!isValidESP32Firmware(data, len)) {
-          Serial.println("ERROR: Invalid firmware file");
-          otaUploadError = "Invalid ESP32 firmware file";
-          xSemaphoreGive(spiffsMutex);
-          otaUploadInProgress = false;
-          return;
-        }
-
-        if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
-          Serial.printf("ERROR: Update.begin() failed: %s\n", Update.errorString());
-          otaUploadError = "Failed to begin OTA update: ";
-          otaUploadError += Update.errorString();
-          xSemaphoreGive(spiffsMutex);
-          otaUploadInProgress = false;
-          return;
-        }
-
-        Serial.println("=== OTA Update initialized ===\n");
-      }
-
-      if (len) {
-        yield();
-        size_t written = Update.write(data, len);
-        if (written != len) {
-          Serial.printf("ERROR: OTA Write failed - wrote %d of %d bytes\n", written, len);
-          otaUploadError = "Failed to write firmware data";
-          Update.abort();
-          return;
-        }
-        yield();
-
-        if (index % 32768 == 0 && index > 0) {
-          Serial.printf("Progress: %d KB written (%.1f%%)\n",
-                       (index + len) / 1024,
-                       ((float)(index + len) / request->contentLength()) * 100);
-        }
-      }
-
-      if (final) {
-        Serial.println("\n=== Finalizing OTA update ===");
-        Serial.printf("Total received: %d bytes\n", index + len);
-
-        if (Update.end(true)) {
-          Serial.println("SUCCESS: OTA Update completed!");
-        } else {
-          Serial.printf("ERROR: Update.end() failed: %s\n", Update.errorString());
-          otaUploadError = "Failed to finalize OTA update: ";
-          otaUploadError += Update.errorString();
-        }
-      }
+        else if (error==4)
+        {
+            Serial.print("Unknown error at address 0x");
+            if (address<16)
+                Serial.print("0");
+            Serial.println(address,HEX);
+        }    
     }
-  );
-
-  // List files in SPIFFS
-  server.on("/api/files/list", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (otaUploadInProgress) {
-      request->send(503, "application/json", "{\"error\":\"System busy - firmware update in progress\"}");
-      return;
-    }
-
-    if (!spiffsManager.isReady()) {
-      request->send(503, "application/json", "{\"error\":\"SPIFFS not ready\"}");
-      return;
-    }
-
-    String path = "/";
-    if (request->hasParam("dir")) {
-      path = request->getParam("dir")->value();
-    }
-
-    File root = LittleFS.open(path);
-    if (!root || !root.isDirectory()) {
-      request->send(404, "application/json", "{\"error\":\"Directory not found\"}");
-      return;
-    }
-
-    JsonDocument doc;
-    JsonArray files = doc["files"].to<JsonArray>();
-
-    File file = root.openNextFile();
-    while (file) {
-      JsonObject fileObj = files.add<JsonObject>();
-      fileObj["name"] = String(file.name());
-      fileObj["size"] = file.size();
-      fileObj["isDir"] = file.isDirectory();
-      file = root.openNextFile();
-    }
-
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
-  // Download file
-  server.on("/api/files/download", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (otaUploadInProgress) {
-      request->send(503, "text/plain", "System busy");
-      return;
-    }
-
-    if (!spiffsManager.isReady()) {
-      request->send(503, "text/plain", "SPIFFS not ready");
-      return;
-    }
-
-    if (!request->hasParam("file")) {
-      request->send(400, "text/plain", "Missing file parameter");
-      return;
-    }
-
-    String filepath = request->getParam("file")->value();
-    if (!LittleFS.exists(filepath)) {
-      request->send(404, "text/plain", "File not found");
-      return;
-    }
-
-    request->send(LittleFS, filepath, String(), true);
-  });
-
-  // View file
-  server.on("/api/files/view", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (otaUploadInProgress) {
-      request->send(503, "text/plain", "System busy");
-      return;
-    }
-
-    if (!request->hasParam("file")) {
-      request->send(400, "text/plain", "Missing file parameter");
-      return;
-    }
-
-    String filepath = request->getParam("file")->value();
-    if (!LittleFS.exists(filepath)) {
-      request->send(404, "text/plain", "File not found");
-      return;
-    }
-
-    request->send(LittleFS, filepath, "text/plain", false);
-  });
-
-  // Read file for editing
-  server.on("/api/files/read", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (otaUploadInProgress) {
-      request->send(503, "application/json", "{\"error\":\"System busy\"}");
-      return;
-    }
-
-    if (!request->hasParam("file")) {
-      request->send(400, "application/json", "{\"error\":\"Missing file parameter\"}");
-      return;
-    }
-
-    String filepath = request->getParam("file")->value();
-    if (!LittleFS.exists(filepath)) {
-      request->send(404, "application/json", "{\"error\":\"File not found\"}");
-      return;
-    }
-
-    if (xSemaphoreTake(spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-      File file = LittleFS.open(filepath, FILE_READ);
-      if (!file) {
-        xSemaphoreGive(spiffsMutex);
-        request->send(500, "application/json", "{\"error\":\"Failed to open file\"}");
-        return;
-      }
-
-      size_t fileSize = file.size();
-
-      if (fileSize > 51200) {
-        file.close();
-        xSemaphoreGive(spiffsMutex);
-        request->send(413, "application/json", "{\"error\":\"File too large (max 50KB)\"}");
-        return;
-      }
-
-      String content = "";
-      content.reserve(fileSize + 1);
-
-      while (file.available()) {
-        content += (char)file.read();
-      }
-
-      file.close();
-      xSemaphoreGive(spiffsMutex);
-
-      JsonDocument doc;
-      doc["status"] = "ok";
-      doc["content"] = content;
-      doc["size"] = fileSize;
-
-      String response;
-      serializeJson(doc, response);
-      request->send(200, "application/json", response);
-    } else {
-      request->send(503, "application/json", "{\"error\":\"SPIFFS busy\"}");
-    }
-  });
-
-  // Write file
-  server.on("/api/files/write", HTTP_POST, [](AsyncWebServerRequest *request) {
-    if (otaUploadInProgress) {
-      request->send(503, "application/json", "{\"error\":\"System busy\"}");
-      return;
-    }
-
-    if (!request->hasParam("file", true) || !request->hasParam("content", true)) {
-      request->send(400, "application/json", "{\"error\":\"Missing parameters\"}");
-      return;
-    }
-
-    String filepath = request->getParam("file", true)->value();
-    String content = request->getParam("content", true)->value();
-
-    if (xSemaphoreTake(spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-      File file = LittleFS.open(filepath, FILE_WRITE);
-      if (!file) {
-        xSemaphoreGive(spiffsMutex);
-        request->send(500, "application/json", "{\"error\":\"Failed to open file\"}");
-        return;
-      }
-
-      size_t written = file.print(content);
-      file.close();
-      xSemaphoreGive(spiffsMutex);
-
-      if (written > 0) {
-        JsonDocument doc;
-        doc["status"] = "ok";
-        doc["written"] = written;
-
-        String response;
-        serializeJson(doc, response);
-        request->send(200, "application/json", response);
-      } else {
-        request->send(500, "application/json", "{\"error\":\"Failed to write\"}");
-      }
-    } else {
-      request->send(503, "application/json", "{\"error\":\"SPIFFS busy\"}");
-    }
-  });
-
-  // Delete file
-  server.on("/api/files/delete", HTTP_POST, [](AsyncWebServerRequest *request) {
-    if (otaUploadInProgress) {
-      request->send(503, "application/json", "{\"error\":\"System busy\"}");
-      return;
-    }
-
-    if (!request->hasParam("file", true)) {
-      request->send(400, "application/json", "{\"error\":\"Missing file parameter\"}");
-      return;
-    }
-
-    String filepath = request->getParam("file", true)->value();
-
-    File file = LittleFS.open(filepath);
-    if (!file) {
-      request->send(404, "application/json", "{\"error\":\"File not found\"}");
-      return;
-    }
-
-    bool isDir = file.isDirectory();
-    file.close();
-
-    bool success = false;
-    if (isDir) {
-      success = LittleFS.rmdir(filepath);
-    } else {
-      success = LittleFS.remove(filepath);
-    }
-
-    if (success) {
-      request->send(200, "application/json", "{\"status\":\"ok\"}");
-    } else {
-      request->send(500, "application/json", "{\"error\":\"Failed to delete\"}");
-    }
-  });
-
-  // Upload file
-  server.on("/api/files/upload", HTTP_POST,
-    [](AsyncWebServerRequest *request) {
-      request->send(200, "application/json", "{\"status\":\"ok\"}");
-    },
-    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      static File uploadFile;
-
-      if (otaUploadInProgress) {
-        return;
-      }
-
-      if (index == 0) {
-        String path = "/";
-        if (request->hasParam("dir", false)) {
-          path = request->getParam("dir", false)->value();
-          if (path != "/" && !path.endsWith("/")) {
-            path += "/";
-          }
-        }
-
-        String filepath = path + filename;
-        Serial.printf("Upload start: %s\n", filepath.c_str());
-
-        if (LittleFS.exists(filepath)) {
-          LittleFS.remove(filepath);
-        }
-
-        uploadFile = LittleFS.open(filepath, FILE_WRITE);
-        if (!uploadFile) {
-          Serial.printf("Failed to open for writing: %s\n", filepath.c_str());
-          return;
-        }
-      }
-
-      if (uploadFile && len) {
-        uploadFile.write(data, len);
-        if (index % 8192 == 0) {
-          delay(1);
-        }
-      }
-
-      if (final) {
-        if (uploadFile) {
-          uploadFile.close();
-          Serial.printf("Upload complete: %s (%d bytes)\n", filename.c_str(), index + len);
-        }
-      }
-    }
-  );
-
-  // Create directory
-  server.on("/api/files/mkdir", HTTP_POST, [](AsyncWebServerRequest *request) {
-    if (otaUploadInProgress) {
-      request->send(503, "application/json", "{\"error\":\"System busy\"}");
-      return;
-    }
-
-    if (!request->hasParam("dir", true)) {
-      request->send(400, "application/json", "{\"error\":\"Missing dir parameter\"}");
-      return;
-    }
-
-    String dirpath = request->getParam("dir", true)->value();
-
-    if (LittleFS.mkdir(dirpath)) {
-      request->send(200, "application/json", "{\"status\":\"ok\"}");
-    } else {
-      request->send(500, "application/json", "{\"error\":\"Failed to create directory\"}");
-    }
-  });
-
-  // WiFi Manager page
-  server.on("/wifi", HTTP_GET, [](AsyncWebServerRequest *request) {
-    validateOTABoot();
-    if (spiffsManager.isReady()) {
-      request->send(LittleFS, "/web/wifi.html", "text/html");
-    } else {
-      request->send(503, "text/html",
-        "<html><body><h1>WiFi Manager unavailable</h1>"
-        "<p>SPIFFS is required for WiFi Manager functionality.</p>"
-        "<a href='/'>Back to Home</a></body></html>");
-    }
-  });
-
-  server.on("/wifi.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serveStaticFile(request, "/web/wifi.js", "application/javascript");
-  });
-
-  // WiFi Scan API
-  server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *request) {
-    JsonDocument doc;
-
-    int n = WiFi.scanNetworks();
-
-    if (n == 0) {
-      doc["networks"] = JsonArray();
-    } else {
-      JsonArray networks = doc["networks"].to<JsonArray>();
-
-      for (int i = 0; i < n; i++) {
-        JsonObject network = networks.add<JsonObject>();
-        network["ssid"] = WiFi.SSID(i);
-        network["rssi"] = WiFi.RSSI(i);
-        network["encryption"] = (int)WiFi.encryptionType(i);
-        network["channel"] = WiFi.channel(i);
-      }
-    }
-
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-
-    // Clean up
-    WiFi.scanDelete();
-  });
-
-  // WiFi Connect API
-  server.on("/api/wifi/connect", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
-    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      if (index == 0) {
-        // First chunk - parse JSON
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, data, len);
-
-        if (error) {
-          request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-          return;
-        }
-
-        const char* ssid = doc["ssid"];
-        const char* password = doc["password"];
-
-        if (!ssid || strlen(ssid) == 0) {
-          request->send(400, "application/json", "{\"error\":\"SSID is required\"}");
-          return;
-        }
-
-        // Read existing config.json
-        JsonDocument configDoc;
-
-        if (xSemaphoreTake(spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-          // Read existing config
-          File configFile = LittleFS.open("/config.json", "r");
-          if (configFile) {
-            DeserializationError error = deserializeJson(configDoc, configFile);
-            configFile.close();
-
-            if (error) {
-              Serial.println("Failed to parse existing config.json, using defaults");
-            }
-          }
-
-          // Update only WiFi settings
-          configDoc["wifi"]["ssid"] = ssid;
-          configDoc["wifi"]["password"] = password ? password : "";
-          configDoc["wifi"]["ap_mode"] = false;
-
-          // Save updated config
-          configFile = LittleFS.open("/config.json", "w");
-          if (configFile) {
-            serializeJson(configDoc, configFile);
-            configFile.close();
-
-            Serial.printf("WiFi config saved: SSID=%s\n", ssid);
-
-            request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved. Rebooting...\"}");
-
-            // Release mutex before reboot
-            xSemaphoreGive(spiffsMutex);
-
-            // Reboot after 2 seconds
-            delay(2000);
-            ESP.restart();
-          } else {
-            xSemaphoreGive(spiffsMutex);
-            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
-          }
-        } else {
-          request->send(503, "application/json", "{\"error\":\"System busy\"}");
-        }
-      }
-    }
-  );
-
-  // MQTT Manager page
-  server.on("/mqtt", HTTP_GET, [](AsyncWebServerRequest *request) {
-    validateOTABoot();
-    if (spiffsManager.isReady()) {
-      request->send(LittleFS, "/web/mqtt.html", "text/html");
-    } else {
-      request->send(503, "text/html",
-        "<html><body><h1>MQTT Manager unavailable</h1>"
-        "<p>SPIFFS is required for MQTT Manager functionality.</p>"
-        "<a href='/'>Back to Home</a></body></html>");
-    }
-  });
-
-  server.on("/mqtt.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serveStaticFile(request, "/web/mqtt.js", "application/javascript");
-  });
-
-  // MQTT Status API
-  server.on("/api/mqtt/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-    JsonDocument doc;
-
-    const MQTTManager::MQTTConfig& config = mqttManager.getConfig();
-
-    doc["enabled"] = config.enabled;
-    doc["connected"] = mqttManager.isConnected();
-    doc["server"] = config.server;
-    doc["port"] = config.port;
-    doc["main_topic"] = config.mainTopic;
-    doc["client_id"] = config.clientId;
-
-    if (!mqttManager.isConnected() && config.enabled) {
-      doc["error"] = mqttManager.getLastError();
-      doc["state"] = mqttManager.getState();
-    }
-
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
-  // MQTT Configuration API - GET
-  server.on("/api/mqtt/config", HTTP_GET, [](AsyncWebServerRequest *request) {
-    JsonDocument doc;
-
-    const MQTTManager::MQTTConfig& config = mqttManager.getConfig();
-
-    doc["enabled"] = config.enabled;
-    doc["server"] = config.server;
-    doc["port"] = config.port;
-    doc["username"] = config.username;
-    doc["password"] = config.password;
-    doc["main_topic"] = config.mainTopic;
-    doc["client_id"] = config.clientId;
-
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
-  // MQTT Configuration API - POST
-  server.on("/api/mqtt/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
-    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      if (index == 0) {
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, data, len);
-
-        if (error) {
-          request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-          return;
-        }
-
-        // Update MQTT configuration
-        const char* server = doc["server"] | "";
-        uint16_t port = doc["port"] | 1883;
-        const char* username = doc["username"] | "";
-        const char* password = doc["password"] | "";
-        const char* mainTopic = doc["main_topic"] | "esp32/data";
-        bool enabled = doc["enabled"] | false;
-
-        mqttManager.updateConfig(server, port, username, password, mainTopic, enabled);
-
-        // Save to config.json
-        if (xSemaphoreTake(spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-          File configFile = LittleFS.open("/config.json", "r");
-          JsonDocument configDoc;
-
-          if (configFile) {
-            deserializeJson(configDoc, configFile);
-            configFile.close();
-          }
-
-          // Save MQTT config to JSON
-          mqttManager.saveConfig(configDoc);
-
-          // Write back to file
-          configFile = LittleFS.open("/config.json", "w");
-          if (configFile) {
-            serializeJson(configDoc, configFile);
-            configFile.close();
-
-            Serial.println("MQTT configuration saved to file");
-
-            request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
-          } else {
-            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
-          }
-
-          xSemaphoreGive(spiffsMutex);
-        } else {
-          request->send(503, "application/json", "{\"error\":\"System busy\"}");
-        }
-      }
-    }
-  );
-
-  // MQTT Test Connection API
-  server.on("/api/mqtt/test", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
-    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      if (index == 0) {
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, data, len);
-
-        if (error) {
-          request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-          return;
-        }
-
-        // Test connection with provided settings
-        const char* server = doc["server"];
-        uint16_t port = doc["port"] | 1883;
-        const char* username = doc["username"] | "";
-        const char* password = doc["password"] | "";
-
-        if (!server || strlen(server) == 0) {
-          request->send(400, "application/json", "{\"error\":\"Server is required\"}");
-          return;
-        }
-
-        // Create temporary MQTT client for testing
-        WiFiClient testWifiClient;
-        PubSubClient testMqttClient(testWifiClient);
-
-        testMqttClient.setServer(server, port);
-
-        bool connected = false;
-        if (strlen(username) > 0) {
-          connected = testMqttClient.connect("ESP32_TEST", username, password);
-        } else {
-          connected = testMqttClient.connect("ESP32_TEST");
-        }
-
-        if (connected) {
-          testMqttClient.disconnect();
-          request->send(200, "application/json", "{\"success\":true,\"message\":\"Connection successful\"}");
-        } else {
-          String errorMsg = "Connection failed (state=" + String(testMqttClient.state()) + ")";
-          request->send(200, "application/json", "{\"success\":false,\"error\":\"" + errorMsg + "\"}");
-        }
-      }
-    }
-  );
-
-  // MQTT Publish API
-  server.on("/api/mqtt/publish", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
-    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      if (index == 0) {
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, data, len);
-
-        if (error) {
-          request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-          return;
-        }
-
-        const char* topic = doc["topic"];
-        const char* message = doc["message"];
-        bool retained = doc["retained"] | false;
-
-        if (!message) {
-          request->send(400, "application/json", "{\"error\":\"Message is required\"}");
-          return;
-        }
-
-        if (!mqttManager.isConnected()) {
-          request->send(503, "application/json", "{\"error\":\"MQTT not connected\"}");
-          return;
-        }
-
-        bool success;
-        String usedTopic;
-
-        if (topic && strlen(topic) > 0) {
-          usedTopic = String(topic);
-          success = mqttManager.publish(topic, message, retained);
-        } else {
-          usedTopic = String(mqttManager.getConfig().mainTopic);
-          success = mqttManager.publishToMainTopic(message, retained);
-        }
-
-        if (success) {
-          JsonDocument responseDoc;
-          responseDoc["status"] = "ok";
-          responseDoc["topic"] = usedTopic;
-
-          String response;
-          serializeJson(responseDoc, response);
-          request->send(200, "application/json", response);
-        } else {
-          request->send(500, "application/json", "{\"error\":\"Failed to publish message\"}");
-        }
-      }
-    }
-  );
-
-  // OLED Display page
-  server.on("/display", HTTP_GET, [](AsyncWebServerRequest *request) {
-    validateOTABoot();
-    if (spiffsManager.isReady()) {
-      request->send(LittleFS, "/web/display.html", "text/html");
-    } else {
-      request->send(503, "text/html",
-        "<html><body><h1>Display Manager unavailable</h1>"
-        "<p>SPIFFS is required for Display Manager functionality.</p>"
-        "<a href='/'>Back to Home</a></body></html>");
-    }
-  });
-
-  server.on("/display.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serveStaticFile(request, "/web/display.js", "application/javascript");
-  });
-
-  // SHT20 Sensor page
-  server.on("/sensor", HTTP_GET, [](AsyncWebServerRequest *request) {
-    validateOTABoot();
-    if (spiffsManager.isReady()) {
-      request->send(LittleFS, "/web/sensor.html", "text/html");
-    } else {
-      request->send(503, "text/html",
-        "<html><body><h1>Sensor Manager unavailable</h1>"
-        "<p>SPIFFS is required for Sensor Manager functionality.</p>"
-        "<a href='/'>Back to Home</a></body></html>");
-    }
-  });
-
-  server.on("/sensor.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serveStaticFile(request, "/web/sensor.js", "application/javascript");
-  });
-
-  // OLED Display Status API
-  server.on("/api/display/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-    JsonDocument doc;
-
-    const OLEDManager::OLEDConfig& config = oledManager.getConfig();
-
-    doc["enabled"] = config.enabled;
-    doc["available"] = oledManager.isAvailable();
-    doc["address"] = config.address;
-    doc["sda_pin"] = config.sda_pin;
-    doc["scl_pin"] = config.scl_pin;
-    doc["mode"] = (int)oledManager.getMode();
-
-    if (!oledManager.isAvailable() && config.enabled) {
-      doc["error"] = oledManager.getLastError();
-    }
-
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
-  // OLED Display Configuration API - GET
-  server.on("/api/display/config", HTTP_GET, [](AsyncWebServerRequest *request) {
-    JsonDocument doc;
-
-    const OLEDManager::OLEDConfig& config = oledManager.getConfig();
-
-    doc["enabled"] = config.enabled;
-    doc["address"] = config.address;
-    doc["sda_pin"] = config.sda_pin;
-    doc["scl_pin"] = config.scl_pin;
-    doc["rst_pin"] = config.rst_pin;
-    doc["auto_update"] = config.auto_update;
-    doc["brightness"] = config.brightness;
-    doc["flip_display"] = config.flip_display;
-
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
-  // OLED Display Configuration API - POST
-  server.on("/api/display/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
-    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      if (index == 0) {
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, data, len);
-
-        if (error) {
-          request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-          return;
-        }
-
-        // Update OLED configuration
-        bool enabled = doc["enabled"] | false;
-        uint8_t address = doc["address"] | 0x3C;
-        uint8_t sda = doc["sda_pin"] | 21;
-        uint8_t scl = doc["scl_pin"] | 22;
-        int8_t rst = doc["rst_pin"] | -1;
-        bool autoUpdate = doc["auto_update"] | true;
-        uint8_t brightness = doc["brightness"] | 128;
-        bool flip = doc["flip_display"] | false;
-
-        oledManager.updateConfig(enabled, address, sda, scl, rst, autoUpdate, brightness, flip);
-
-        // Save to config.json
-        if (xSemaphoreTake(spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-          File configFile = LittleFS.open("/config.json", "r");
-          JsonDocument configDoc;
-
-          if (configFile) {
-            deserializeJson(configDoc, configFile);
-            configFile.close();
-          }
-
-          // Save OLED config to JSON
-          oledManager.saveConfig(configDoc);
-
-          // Write back to file
-          configFile = LittleFS.open("/config.json", "w");
-          if (configFile) {
-            serializeJson(configDoc, configFile);
-            configFile.close();
-
-            Serial.println("OLED configuration saved to file");
-
-            request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
-          } else {
-            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
-          }
-
-          xSemaphoreGive(spiffsMutex);
-        } else {
-          request->send(503, "application/json", "{\"error\":\"System busy\"}");
-        }
-      }
-    }
-  );
-
-  // OLED Display Mode API
-  server.on("/api/display/mode", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
-    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      if (index == 0) {
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, data, len);
-
-        if (error) {
-          request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-          return;
-        }
-
-        if (!oledManager.isAvailable()) {
-          request->send(503, "application/json", "{\"error\":\"Display not available\"}");
-          return;
-        }
-
-        int mode = doc["mode"] | 0;
-
-        switch (mode) {
-          case 0: // OFF
-            oledManager.setMode(OLEDManager::MODE_OFF);
-            break;
-          case 1: // LOGO
-            oledManager.setMode(OLEDManager::MODE_LOGO);
-            oledManager.showLogo();
-            break;
-          case 2: // SYSTEM_INFO
-            oledManager.setMode(OLEDManager::MODE_SYSTEM_INFO);
-            oledManager.showSystemInfo(WiFi.localIP().toString().c_str(),
-                                        millis() / 1000,
-                                        ESP.getFreeHeap());
-            break;
-          case 3: // NETWORK_INFO
-            oledManager.setMode(OLEDManager::MODE_NETWORK_INFO);
-            oledManager.showNetworkInfo(WiFi.SSID().c_str(),
-                                         WiFi.RSSI(),
-                                         WiFi.localIP().toString().c_str());
-            break;
-          case 4: // MQTT_INFO
-            {
-              const MQTTManager::MQTTConfig& mqttCfg = mqttManager.getConfig();
-              oledManager.setMode(OLEDManager::MODE_MQTT_INFO);
-              oledManager.showMQTTInfo(mqttManager.isConnected(),
-                                       mqttCfg.server,
-                                       mqttCfg.mainTopic);
-            }
-            break;
-          case 5: // CUSTOM_TEXT
-            {
-              const char* line1 = doc["line1"] | "";
-              const char* line2 = doc["line2"] | "";
-              const char* line3 = doc["line3"] | "";
-              const char* line4 = doc["line4"] | "";
-              oledManager.setMode(OLEDManager::MODE_CUSTOM_TEXT);
-              oledManager.showCustomText(line1, line2, line3, line4);
-            }
-            break;
-          case 6: // SENSOR_INFO
-            {
-              const SHT20Manager::SHT20Config& sensorCfg = sht20Manager.getConfig();
-              oledManager.setMode(OLEDManager::MODE_SENSOR_INFO);
-              oledManager.showSensorInfo(sht20Manager.isAvailable(),
-                                          sht20Manager.getTemperature(),
-                                          sht20Manager.getHumidity(),
-                                          sensorCfg.fahrenheit);
-            }
-            break;
-          default:
-            request->send(400, "application/json", "{\"error\":\"Invalid mode\"}");
-            return;
-        }
-
-        request->send(200, "application/json", "{\"status\":\"ok\"}");
-      }
-    }
-  );
-
-  // SHT20 Sensor Status API
-  server.on("/api/sensor/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-    JsonDocument doc;
-
-    const SHT20Manager::SHT20Config& cfg = sht20Manager.getConfig();
-    const SHT20Manager::SHT20Data& data = sht20Manager.getData();
-
-    doc["enabled"] = cfg.enabled;
-    doc["available"] = sht20Manager.isAvailable();
-    doc["valid"] = data.valid;
-
-    if (data.valid) {
-      doc["temperature"] = sht20Manager.getTemperature();
-      doc["temperature_f"] = sht20Manager.getTemperatureFahrenheit();
-      doc["humidity"] = sht20Manager.getHumidity();
-      doc["timestamp"] = data.timestamp;
-      doc["fahrenheit"] = cfg.fahrenheit;
-    }
-
-    if (!sht20Manager.isAvailable()) {
-      doc["error"] = sht20Manager.getLastError().c_str();
-    }
-
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
-  // SHT20 Sensor Config GET API
-  server.on("/api/sensor/config", HTTP_GET, [](AsyncWebServerRequest *request) {
-    JsonDocument doc;
-
-    const SHT20Manager::SHT20Config& cfg = sht20Manager.getConfig();
-
-    doc["enabled"] = cfg.enabled;
-    doc["read_interval"] = cfg.read_interval;
-    doc["fahrenheit"] = cfg.fahrenheit;
-
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
-  // SHT20 Sensor Config POST API
-  server.on("/api/sensor/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
-    [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      if (index == 0) {
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, data, len);
-
-        if (error) {
-          request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-          return;
-        }
-
-        bool enabled = doc["enabled"] | false;
-        uint16_t interval = doc["read_interval"] | 60;
-        bool fahrenheit = doc["fahrenheit"] | false;
-
-        // Validation
-        if (interval < 5 || interval > 3600) {
-          request->send(400, "application/json", "{\"error\":\"Read interval must be between 5 and 3600 seconds\"}");
-          return;
-        }
-
-        sht20Manager.updateConfig(enabled, interval, fahrenheit);
-
-        // Save to config.json
-        if (xSemaphoreTake(spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-          File configFile = LittleFS.open("/config.json", "r");
-          JsonDocument configDoc;
-
-          if (configFile) {
-            deserializeJson(configDoc, configFile);
-            configFile.close();
-          }
-
-          // Save SHT20 config to JSON
-          sht20Manager.saveConfig(configDoc);
-
-          // Write back to file
-          configFile = LittleFS.open("/config.json", "w");
-          if (configFile) {
-            serializeJson(configDoc, configFile);
-            configFile.close();
-
-            Serial.println("SHT20 configuration saved to file");
-
-            request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
-          } else {
-            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
-          }
-
-          xSemaphoreGive(spiffsMutex);
-        } else {
-          request->send(503, "application/json", "{\"error\":\"System busy\"}");
-        }
-      }
-    }
-  );
-
-  // 404 handler
-  server.onNotFound([](AsyncWebServerRequest *request) {
-    validateOTABoot();
-    request->send(404, "text/plain", "Not found");
-  });
-
-  server.begin();
-  Serial.println("Web server started");
+    if (nDevices == 0)
+        log("No I2C devices found\n");
+    else
+        log("done\n");
 }
 
 bool loadConfig() {
@@ -1510,7 +260,7 @@ bool loadConfig() {
 
   File file = LittleFS.open("/config.json", FILE_READ);
   if (!file) {
-    Serial.println("Config file not found");
+    log("Config file not found");
     return false;
   }
 
@@ -1519,13 +269,13 @@ bool loadConfig() {
   file.close();
 
   if (error) {
-    Serial.println("Failed to parse config");
+    log("Failed to parse config");
     return false;
   }
 
-  strlcpy(config.ssid, doc["wifi"]["ssid"] | "ESP32-FileManager", sizeof(config.ssid));
-  strlcpy(config.password, doc["wifi"]["password"] | "12345678", sizeof(config.password));
-  config.apMode = doc["wifi"]["ap_mode"] | true;
+  strlcpy(config.ssid, doc["wifi"]["ssid"] | WIFI_SSID_DEFAULT, sizeof(config.ssid));
+  strlcpy(config.password, doc["wifi"]["password"] | WIFI_PASS_DEFAULT, sizeof(config.password));
+  config.apMode = doc["wifi"]["ap_mode"] | WIFI_AP_MODE_DEFAULT;
 
   // Load MQTT configuration
   mqttManager.loadConfig(doc);
@@ -1536,98 +286,17 @@ bool loadConfig() {
   // Load SHT20 configuration
   sht20Manager.loadConfig(doc);
 
-  Serial.println("Configuration loaded from SPIFFS");
+  log("Configuration loaded from SPIFFS");
   return true;
 }
 
 void setDefaultConfig() {
-  strcpy(config.ssid, "ESP32-FileManager");
-  strcpy(config.password, "12345678");
-  config.apMode = true;
+  strcpy(config.ssid, WIFI_SSID_DEFAULT);
+  strcpy(config.password, WIFI_PASS_DEFAULT);
+  config.apMode = WIFI_AP_MODE_DEFAULT;
 }
 
-void serveStaticFile(AsyncWebServerRequest *request, const char* filepath, const char* contentType) {
-  if (!spiffsManager.isReady()) {
-    request->send(503, "text/plain", "SPIFFS not available");
-    return;
-  }
-
-  if (!LittleFS.exists(filepath)) {
-    request->send(404, "text/plain", "File not found");
-    return;
-  }
-
-  AsyncWebServerResponse *response = request->beginResponse(LittleFS, filepath, contentType);
-  if (response) {
-    response->addHeader("Cache-Control", "public, max-age=3600");
-    request->send(response);
-  } else {
-    request->send(500, "text/plain", "Failed to serve file");
-  }
-}
-
-void scanI2CBus() {
-  Serial.println("\n=== I2C Bus Scan ===");
-  byte error, address;
-  int nDevices = 0;
-
-  for(address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
-
-    if (error == 0) {
-      Serial.print("I2C device found at address 0x");
-      if (address < 16) Serial.print("0");
-      Serial.print(address, HEX);
-
-      // Identify known devices
-      if (address == 0x3C || address == 0x3D) {
-        Serial.print(" (OLED SSD1306)");
-      } else if (address == 0x40) {
-        Serial.print(" (SHT20 Sensor)");
-      }
-
-      Serial.println();
-      nDevices++;
-    } else if (error == 4) {
-      Serial.print("Unknown error at address 0x");
-      if (address < 16) Serial.print("0");
-      Serial.println(address, HEX);
-    }
-  }
-
-  if (nDevices == 0) {
-    Serial.println("ERROR: No I2C devices found!");
-    Serial.println("Check wiring: SDA=GPIO4, SCL=GPIO15");
-  } else {
-    Serial.printf("Found %d device(s)\n", nDevices);
-  }
-  Serial.println("===================\n");
-}
-
-String getBuiltinHTML() {
-  return R"HTML(
-<!DOCTYPE html>
-<html>
-<head>
-  <title>ESP32 File Manager</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body { font-family: Arial; margin: 20px; background: #f0f0f0; }
-    .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
-    h1 { color: #333; }
-    .warning { color: #d9534f; padding: 10px; background: #f2dede; border-radius: 5px; margin: 10px 0; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>ESP32 File Manager</h1>
-    <div class="warning">
-      <strong>Error:</strong> SPIFFS not available
-    </div>
-    <p>System cannot function without SPIFFS. Please reflash the firmware.</p>
-  </div>
-</body>
-</html>
-  )HTML";
+void log(const String& msg) {
+  Serial.println(msg);
+  webServerManager.broadcastLog(msg);
 }

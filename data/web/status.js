@@ -1,4 +1,4 @@
-// ESP32 Health Monitor JavaScript
+// ESP32 Status Monitor JavaScript
 
 let autoRefreshEnabled = true;
 let refreshInterval = null;
@@ -47,7 +47,7 @@ function stopAutoRefresh() {
 // Fetch and display health data
 async function refreshHealth() {
     try {
-        const response = await fetch('/api/health/status');
+        const response = await fetch('/api/status');
 
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
@@ -58,8 +58,8 @@ async function refreshHealth() {
         updateLastUpdateTime();
 
     } catch (error) {
-        console.error('Error fetching health data:', error);
-        showError('Erro ao carregar dados de saúde: ' + error.message);
+        console.error('Error fetching status data:', error);
+        showError('Erro ao carregar dados de status: ' + error.message);
     }
 }
 
@@ -71,17 +71,17 @@ function updateDisplay(data) {
     // Uptime
     updateUptime(data.uptime);
 
+    // System Info
+    updateSystemInfo(data.system, data.cpu);
+
     // Memory
     updateMemory(data.memory);
 
     // WiFi
     updateWiFi(data.wifi);
 
-    // SD Card
-    updateSDCard(data.sd_card);
-
-    // CPU & Hardware
-    updateHardware(data.cpu, data.flash);
+    // Storage (SPIFFS & Flash)
+    updateStorage(data.spiffs, data.flash);
 }
 
 // Update overall status
@@ -91,17 +91,17 @@ function updateOverallStatus(status) {
     const statusCard = document.getElementById('status-card');
 
     // Remove previous status classes
-    statusDot.classList.remove('healthy', 'degraded');
-    statusCard.classList.remove('healthy', 'degraded');
+    if (statusDot) statusDot.classList.remove('healthy', 'degraded');
+    if (statusCard) statusCard.classList.remove('healthy', 'degraded');
 
     if (status === 'healthy') {
-        statusDot.classList.add('healthy');
-        statusCard.classList.add('healthy');
-        statusText.textContent = 'Sistema Saudável';
+        if (statusDot) statusDot.classList.add('healthy');
+        if (statusCard) statusCard.classList.add('healthy');
+        if (statusText) statusText.textContent = 'Sistema Saudável';
     } else {
-        statusDot.classList.add('degraded');
-        statusCard.classList.add('degraded');
-        statusText.textContent = 'Sistema Degradado';
+        if (statusDot) statusDot.classList.add('degraded');
+        if (statusCard) statusCard.classList.add('degraded');
+        if (statusText) statusText.textContent = 'Sistema Degradado';
     }
 }
 
@@ -113,16 +113,31 @@ function updateUptime(uptime) {
     }
 }
 
+// Update system info
+function updateSystemInfo(system, cpu) {
+    if (system) {
+        setText('system-reset', system.reset_reason);
+        setText('system-compile', `${system.compile_date} ${system.compile_time}`);
+    }
+
+    if (cpu) {
+        setText('cpu-model', cpu.chip_model);
+        setText('cpu-revision', cpu.chip_revision);
+        setText('cpu-freq', cpu.frequency_mhz ? `${cpu.frequency_mhz} MHz` : '--');
+        setText('sdk-version', cpu.sdk_version);
+    }
+}
+
 // Update memory displays
 function updateMemory(memory) {
     if (memory.heap) {
         const heap = memory.heap;
         const usagePercent = heap.usage_percent.toFixed(1);
 
-        document.getElementById('heap-usage').textContent = `${usagePercent}%`;
-        document.getElementById('heap-used').textContent = formatBytes(heap.used);
-        document.getElementById('heap-free').textContent = formatBytes(heap.free);
-        document.getElementById('heap-total').textContent = formatBytes(heap.total);
+        setText('heap-usage', `${usagePercent}%`);
+        setText('heap-used', formatBytes(heap.used));
+        setText('heap-free', formatBytes(heap.free));
+        setText('heap-total', formatBytes(heap.total));
 
         updateProgressBar('heap-progress', heap.usage_percent);
     }
@@ -131,14 +146,26 @@ function updateMemory(memory) {
         const psram = memory.psram;
         const usagePercent = psram.usage_percent ? psram.usage_percent.toFixed(1) : 0;
 
-        document.getElementById('psram-usage').textContent = `${usagePercent}%`;
-        document.getElementById('psram-used').textContent = formatBytes(psram.used);
-        document.getElementById('psram-free').textContent = formatBytes(psram.free);
-        document.getElementById('psram-total').textContent = formatBytes(psram.total);
+        setText('psram-usage', `${usagePercent}%`);
+        setText('psram-used', formatBytes(psram.used));
+        setText('psram-free', formatBytes(psram.free));
+        setText('psram-total', formatBytes(psram.total));
 
         if (psram.total > 0) {
             updateProgressBar('psram-progress', psram.usage_percent);
         }
+    }
+
+    if (memory.sketch) {
+        const sketch = memory.sketch;
+        const usagePercent = sketch.usage_percent.toFixed(1);
+
+        setText('sketch-usage', `${usagePercent}%`);
+        setText('sketch-used', formatBytes(sketch.used));
+        setText('sketch-free', formatBytes(sketch.free));
+        setText('sketch-total', formatBytes(sketch.total));
+
+        updateProgressBar('sketch-progress', sketch.usage_percent);
     }
 }
 
@@ -146,51 +173,43 @@ function updateMemory(memory) {
 function updateWiFi(wifi) {
     if (!wifi) return;
 
-    document.getElementById('wifi-ssid').textContent = wifi.ssid || '--';
-    document.getElementById('wifi-signal').textContent = wifi.signal_strength || '--';
-    document.getElementById('wifi-ip').textContent = wifi.ip || '--';
-    document.getElementById('wifi-mac').textContent = wifi.mac || '--';
-    document.getElementById('wifi-channel').textContent = wifi.channel || '--';
-    document.getElementById('wifi-rssi').textContent = wifi.rssi ? `${wifi.rssi} dBm` : '--';
+    setText('wifi-ssid', wifi.ssid);
+    setText('wifi-signal', wifi.signal_strength);
+    setText('wifi-ip', wifi.ip);
+    setText('wifi-gateway', wifi.gateway);
+    setText('wifi-subnet', wifi.subnet);
+    setText('wifi-dns', wifi.dns);
+    setText('wifi-mac', wifi.mac);
+    setText('wifi-bssid', wifi.bssid);
+    setText('wifi-channel', wifi.channel);
+    setText('wifi-rssi', wifi.rssi ? `${wifi.rssi} dBm` : '--');
 }
 
-// Update SD Card information
-function updateSDCard(sdCard) {
-    if (!sdCard || !sdCard.ready) {
-        document.getElementById('sd-usage').textContent = 'N/A';
-        document.getElementById('sd-used').textContent = '--';
-        document.getElementById('sd-free').textContent = '--';
-        document.getElementById('sd-total').textContent = '--';
-        document.getElementById('sd-type').textContent = '--';
-        return;
-    }
+// Update Storage information
+function updateStorage(spiffs, flash) {
+    if (spiffs && spiffs.ready) {
+        const usagePercent = spiffs.usage_percent.toFixed(1);
+        setText('spiffs-usage', `${usagePercent}%`);
+        setText('spiffs-used', formatBytes(spiffs.used_bytes));
+        setText('spiffs-free', formatBytes(spiffs.free_bytes));
+        setText('spiffs-total', formatBytes(spiffs.total_bytes));
 
-    const usagePercent = sdCard.usage_percent.toFixed(1);
-    document.getElementById('sd-usage').textContent = `${usagePercent}%`;
-    document.getElementById('sd-used').textContent = `${sdCard.used_mb} MB`;
-    document.getElementById('sd-free').textContent = `${sdCard.free_mb} MB`;
-    document.getElementById('sd-total').textContent = `${sdCard.total_mb} MB`;
-    document.getElementById('sd-type').textContent = sdCard.type || '--';
-
-    updateProgressBar('sd-progress', sdCard.usage_percent);
-}
-
-// Update hardware information
-function updateHardware(cpu, flash) {
-    if (cpu) {
-        document.getElementById('cpu-model').textContent = cpu.chip_model || '--';
-        document.getElementById('cpu-revision').textContent = cpu.chip_revision || '--';
-        document.getElementById('cpu-freq').textContent = cpu.frequency_mhz ? `${cpu.frequency_mhz} MHz` : '--';
-        document.getElementById('cpu-cores').textContent = cpu.cores || '--';
-        document.getElementById('sdk-version').textContent = cpu.sdk_version || '--';
+        updateProgressBar('spiffs-progress', spiffs.usage_percent);
     }
 
     if (flash) {
-        document.getElementById('flash-size').textContent = flash.size_mb ? `${flash.size_mb} MB` : '--';
+        setText('flash-size', flash.size_mb ? `${flash.size_mb} MB` : '--');
+        setText('flash-speed', flash.speed_mhz ? `${flash.speed_mhz} MHz` : '--');
     }
 }
 
-// Update application status (removed - no tracking functionality)
+// Helper to set text content safely
+function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.textContent = text || '--';
+    }
+}
 
 // Update progress bar
 function updateProgressBar(elementId, percentage) {
@@ -227,7 +246,7 @@ function formatBytes(bytes) {
 function updateLastUpdateTime() {
     const now = new Date();
     const timeString = now.toLocaleTimeString('pt-BR');
-    document.getElementById('last-update').textContent = timeString;
+    setText('last-update', timeString);
 }
 
 // Show error message
@@ -235,9 +254,11 @@ function showError(message) {
     const statusText = document.getElementById('overall-status-text');
     const statusDot = document.getElementById('overall-status');
 
-    statusText.textContent = message;
-    statusDot.classList.remove('healthy', 'degraded');
-    statusDot.classList.add('degraded');
+    if (statusText) statusText.textContent = message;
+    if (statusDot) {
+        statusDot.classList.remove('healthy', 'degraded');
+        statusDot.classList.add('degraded');
+    }
 }
 
 // Manual refresh button

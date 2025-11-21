@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>File Manager - ESP32</title>
     <link rel="stylesheet" href="/unified.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.12/ace.js"></script>
 </head>
+
 <body>
     <div class="container">
         <div id="header-placeholder"></div>
@@ -36,13 +39,13 @@
 
     <!-- Editor Modal -->
     <div id="editorModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content" style="width: 90%; height: 90%; max-width: 1000px;">
             <div class="modal-header">
                 <h2 id="editorTitle">✏️ Editar Arquivo</h2>
                 <span class="close-btn" onclick="closeEditor()">&times;</span>
             </div>
-            <div class="modal-body">
-                <textarea id="fileEditor" spellcheck="false"></textarea>
+            <div class="modal-body" style="padding: 0; height: calc(100% - 120px);">
+                <div id="fileEditor" style="height: 100%; width: 100%;"></div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeEditor()">❌ Cancelar</button>
@@ -57,4 +60,5 @@
     </script>
     <script src="/filemanager.js"></script>
 </body>
+
 </html>

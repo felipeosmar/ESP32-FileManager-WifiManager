@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 File Manager</title>
     <link rel="stylesheet" href="unified.css">
 </head>
+
 <body>
     <div class="container">
         <div id="header-placeholder"></div>
@@ -33,10 +35,10 @@
                         </div>
 
                         <div class="feature-card">
-                            <div class="feature-icon">🏥</div>
-                            <h3>Monitor de Saúde</h3>
+                            <div class="feature-icon">📊</div>
+                            <h3>Status do Sistema</h3>
                             <p>Monitore o status do sistema, memória, WiFi e cartão SD</p>
-                            <a href="/health" class="feature-link">Acessar →</a>
+                            <a href="/status" class="feature-link">Acessar →</a>
                         </div>
                     </div>
                 </div>
@@ -65,6 +67,21 @@
                 </div>
             </section>
         </main>
+        </main>
+
+        <!-- Log Console Section -->
+        <section class="log-section" style="margin-top: 20px;">
+            <div class="card">
+                <h2>System Logs</h2>
+                <div id="log-console"
+                    style="background: #1e1e1e; color: #00ff00; font-family: monospace; height: 200px; overflow-y: auto; padding: 10px; border-radius: 5px; font-size: 12px;">
+                    <div>Connecting to log server...</div>
+                </div>
+                <div style="margin-top: 10px;">
+                    <button onclick="clearLogs()" class="btn">Clear Logs</button>
+                </div>
+            </div>
+        </section>
 
         <footer>
             <p>ESP32 File Manager v1.0 | WiFi Manager & OTA Updates | © 2024</p>
@@ -76,5 +93,47 @@
         loadHeader('🏠 ESP32 File Manager');
     </script>
     <script src="app.js"></script>
+    <script>
+        // WebSocket for Logs
+        const logConsole = document.getElementById('log-console');
+        let ws = new WebSocket('ws://' + window.location.hostname + '/ws');
+
+        ws.onopen = function () {
+            addLog('Connected to WebSocket');
+        };
+
+        ws.onmessage = function (evt) {
+            if (evt.data.startsWith('LOG:')) {
+                addLog(evt.data.substring(4));
+            } else {
+                addLog(evt.data);
+            }
+        };
+
+        ws.onclose = function () {
+            addLog('Disconnected from WebSocket');
+            setTimeout(function () {
+                ws = new WebSocket('ws://' + window.location.hostname + '/ws');
+            }, 2000);
+        };
+
+        function addLog(msg) {
+            const div = document.createElement('div');
+            const time = new Date().toLocaleTimeString();
+            div.textContent = `[${time}] ${msg}`;
+            logConsole.appendChild(div);
+            logConsole.scrollTop = logConsole.scrollHeight;
+
+            // Limit logs
+            while (logConsole.children.length > 100) {
+                logConsole.removeChild(logConsole.firstChild);
+            }
+        }
+
+        function clearLogs() {
+            logConsole.innerHTML = '';
+        }
+    </script>
 </body>
+
 </html>
