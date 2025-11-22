@@ -32,7 +32,9 @@ async function loadMQTTConfig() {
         document.getElementById('mqttPort').value = data.port || 1883;
         document.getElementById('mqttUsername').value = data.username || '';
         document.getElementById('mqttPassword').value = data.password || '';
+        document.getElementById('mqttHostname').value = data.hostname || 'ESP32-Device';
         document.getElementById('mqttMainTopic').value = data.main_topic || 'esp32/data';
+        document.getElementById('mqttPublishInterval').value = data.publish_interval || 60;
         document.getElementById('mqttClientId').value = data.client_id || '';
 
         console.log('MQTT configuration loaded:', data);
@@ -91,7 +93,9 @@ async function saveMQTTConfig(event) {
         port: parseInt(document.getElementById('mqttPort').value),
         username: document.getElementById('mqttUsername').value.trim(),
         password: document.getElementById('mqttPassword').value,
-        main_topic: document.getElementById('mqttMainTopic').value.trim()
+        hostname: document.getElementById('mqttHostname').value.trim(),
+        main_topic: document.getElementById('mqttMainTopic').value.trim(),
+        publish_interval: parseInt(document.getElementById('mqttPublishInterval').value)
     };
 
     // Validation
@@ -107,6 +111,11 @@ async function saveMQTTConfig(event) {
 
     if (formData.enabled && !formData.main_topic) {
         showError('O tópico principal é obrigatório');
+        return;
+    }
+
+    if (formData.publish_interval < 10 || formData.publish_interval > 3600) {
+        showError('O intervalo de publicação deve estar entre 10 e 3600 segundos');
         return;
     }
 

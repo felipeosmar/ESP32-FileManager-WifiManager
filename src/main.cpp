@@ -44,6 +44,9 @@ SemaphoreHandle_t spiffsMutex = NULL;
 // Mutex for I2C bus access (prevents concurrent access between OLED and SHT20)
 SemaphoreHandle_t i2cMutex = NULL;
 
+// MQTT status publishing
+unsigned long lastStatusPublish = 0;
+
 // Configuration
 struct Config {
   char ssid[32];
@@ -57,6 +60,7 @@ bool loadConfig();
 void setDefaultConfig();
 void scanI2CBus();
 void log(const String& msg);
+void publishSystemStatus();
 
 void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
@@ -180,6 +184,16 @@ void loop() {
   // Sensor update (auto-reads at configured interval)
   sensorManager.update();
 
+  // Publish system status to MQTT periodically
+  unsigned long now = millis();
+  const MQTTManager::MQTTConfig& mqttConfig = mqttManager.getConfig();
+  unsigned long publishInterval = mqttConfig.publish_interval * 1000UL;  // Convert seconds to milliseconds
+
+  if (mqttManager.isConnected() && (now - lastStatusPublish >= publishInterval)) {
+    publishSystemStatus();
+    lastStatusPublish = now;
+  }
+
   // Small delay to prevent watchdog issues
   delay(10);
 }
@@ -302,4 +316,97 @@ void setDefaultConfig() {
 void log(const String& msg) {
   Serial.println(msg);
   webServerManager.broadcastLog(msg);
+}
+
+void publishSystemStatus() {
+  JsonDocument doc;
+
+  // System uptime
+  unsigned long uptimeMs = millis();
+  unsigned long uptimeSec = uptimeMs / 1000;
+  unsigned long days = uptimeSec / 86400;
+  unsigned long hours = (uptimeSec % 86400) / 3600;
+  unsigned long minutes = (uptimeSec % 3600) / 60;
+  unsigned long seconds = uptimeSec % 60;
+
+  doc["uptime"]["milliseconds"] = uptimeMs;
+  doc["uptime"]["formatted"] = String(days) + "d " + String(hours) + "h " +
+                                String(minutes) + "m " + String(seconds) + "s";
+
+  // Memory
+  uint32_t heapTotal = ESP.getHeapSize();
+  uint32_t heapFree = ESP.getFreeHeap();
+  uint32_t heapUsed = heapTotal - heapFree;
+  doc["memory"]["heap"]["total"] = heapTotal;
+  doc["memory"]["heap"]["free"] = heapFree;
+  doc["memory"]["heap"]["used"] = heapUsed;
+  doc["memory"]["heap"]["usage_percent"] = ((float)heapUsed / heapTotal) * 100;
+
+  if (psramFound()) {
+    uint32_t psramTotal = ESP.getPsramSize();
+    uint32_t psramFree = ESP.getFreePsram();
+    uint32_t psramUsed = psramTotal - psramFree;
+    doc["memory"]["psram"]["total"] = psramTotal;
+    doc["memory"]["psram"]["free"] = psramFree;
+    doc["memory"]["psram"]["used"] = psramUsed;
+    doc["memory"]["psram"]["usage_percent"] = ((float)psramUsed / psramTotal) * 100;
+  }
+
+  // Sketch
+  uint32_t sketchSize = ESP.getSketchSize();
+  uint32_t sketchFree = ESP.getFreeSketchSpace();
+  uint32_t sketchTotal = sketchSize + sketchFree;
+  doc["memory"]["sketch"]["total"] = sketchTotal;
+  doc["memory"]["sketch"]["used"] = sketchSize;
+  doc["memory"]["sketch"]["free"] = sketchFree;
+  doc["memory"]["sketch"]["usage_percent"] = ((float)sketchSize / sketchTotal) * 100;
+
+  // WiFi
+  doc["wifi"]["connected"] = WiFi.status() == WL_CONNECTED;
+  doc["wifi"]["ssid"] = WiFi.SSID();
+  doc["wifi"]["rssi"] = WiFi.RSSI();
+  doc["wifi"]["ip"] = WiFi.localIP().toString();
+  doc["wifi"]["mac"] = WiFi.macAddress();
+
+  // SPIFFS
+  doc["spiffs"]["ready"] = spiffsManager.isReady();
+  if (spiffsManager.isReady()) {
+    size_t totalBytes = LittleFS.totalBytes();
+    size_t usedBytes = LittleFS.usedBytes();
+    doc["spiffs"]["total_bytes"] = totalBytes;
+    doc["spiffs"]["used_bytes"] = usedBytes;
+    doc["spiffs"]["free_bytes"] = totalBytes - usedBytes;
+    doc["spiffs"]["usage_percent"] = totalBytes > 0 ? ((float)usedBytes / totalBytes) * 100 : 0;
+  }
+
+  // CPU
+  doc["cpu"]["frequency_mhz"] = ESP.getCpuFreqMHz();
+  doc["cpu"]["chip_model"] = ESP.getChipModel();
+
+  // Sensor data (if available)
+  if (sensorManager.isAvailable()) {
+    const SensorData& sensorData = sensorManager.getData();
+    if (sensorData.valid) {
+      doc["sensor"]["type"] = sensorData.sensorName;
+      doc["sensor"]["temperature"] = sensorData.temperature;
+      doc["sensor"]["humidity"] = sensorData.humidity;
+      doc["sensor"]["timestamp"] = sensorData.timestamp;
+    }
+  }
+
+  // Serialize to string
+  String payload;
+  serializeJson(doc, payload);
+
+  // Log payload size for debugging
+  Serial.printf("MQTT: Status payload size: %d bytes\n", payload.length());
+
+  // Publish to: mainTopic/hostname/status
+  bool success = mqttManager.publishToSubtopic("status", payload.c_str(), false);
+
+  if (success) {
+    Serial.println("MQTT: System status published");
+  } else {
+    Serial.println("MQTT: Failed to publish system status");
+  }
 }

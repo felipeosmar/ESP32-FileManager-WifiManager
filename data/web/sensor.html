@@ -120,37 +120,6 @@
                 </form>
             </section>
 
-            <!-- Info Section -->
-            <section class="info-section">
-                <h2>ℹ️ Informações</h2>
-                <div class="info-box">
-                    <p><strong>Sobre o Sensor SHT20:</strong></p>
-                    <ul>
-                        <li>Sensor digital I2C de temperatura e umidade</li>
-                        <li>Endereço I2C: 0x40 (fixo)</li>
-                        <li>Faixa de temperatura: -40°C a +125°C</li>
-                        <li>Faixa de umidade: 0% a 100% RH</li>
-                        <li>Precisão: ±0.3°C para temperatura, ±2% RH para umidade</li>
-                        <li>Resolução: 14 bits para temperatura, 12 bits para umidade</li>
-                    </ul>
-                    <p><strong>Conexão I2C:</strong></p>
-                    <ul>
-                        <li>Usa os mesmos pinos I2C do display OLED</li>
-                        <li>Conecte VCC ao 3.3V do ESP32</li>
-                        <li>Conecte GND ao GND do ESP32</li>
-                        <li>Conecte SDA ao mesmo pino do display (configurado em Display OLED)</li>
-                        <li>Conecte SCL ao mesmo pino do display (configurado em Display OLED)</li>
-                    </ul>
-                    <p><strong>Recursos:</strong></p>
-                    <ul>
-                        <li>Leituras automáticas em intervalo configurável</li>
-                        <li>Verificação CRC para integridade dos dados</li>
-                        <li>Suporte para Celsius e Fahrenheit</li>
-                        <li>Soft reset do sensor em caso de falha</li>
-                    </ul>
-                </div>
-            </section>
-
             <!-- Error Section -->
             <section class="error-section" id="errorSection" style="display: none;">
                 <div class="error-banner" id="errorBanner">
@@ -172,9 +141,7 @@
             </section>
         </main>
 
-        <footer>
-            <p>ESP32 SHT20 Sensor Manager v1.0</p>
-        </footer>
+        <div id="footer-placeholder"></div>
     </div>
 
     <script src="header.js"></script>
@@ -182,5 +149,6 @@
         loadHeader('🌡️ Sensor SHT20');
     </script>
     <script src="sensor.js"></script>
+    <script src="footer.js"></script>
 </body>
 </html>

@@ -95,6 +95,17 @@
                     </div>
 
                     <div class="form-group">
+                        <label for="mqttHostname">Hostname do Dispositivo *</label>
+                        <input type="text"
+                               id="mqttHostname"
+                               name="hostname"
+                               class="form-input"
+                               placeholder="ESP32-Device"
+                               required>
+                        <small style="color: var(--text-light);">Nome amigável do dispositivo</small>
+                    </div>
+
+                    <div class="form-group">
                         <label for="mqttMainTopic">Tópico Principal *</label>
                         <input type="text"
                                id="mqttMainTopic"
@@ -106,14 +117,28 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="mqttClientId">Client ID</label>
+                        <label for="mqttPublishInterval">Intervalo de Publicação (segundos) *</label>
+                        <input type="number"
+                               id="mqttPublishInterval"
+                               name="publish_interval"
+                               class="form-input"
+                               value="60"
+                               min="10"
+                               max="3600"
+                               required>
+                        <small style="color: var(--text-light);">Intervalo para envio automático de status (10-3600 segundos)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="mqttClientId">Client ID (MAC Address)</label>
                         <input type="text"
                                id="mqttClientId"
                                name="client_id"
                                class="form-input"
-                               placeholder="Gerado automaticamente"
-                               readonly>
-                        <small style="color: var(--text-light);">Identificador único do cliente (gerado automaticamente)</small>
+                               placeholder="Gerado do MAC"
+                               readonly
+                               style="background-color: var(--card-bg); cursor: not-allowed;">
+                        <small style="color: var(--text-light);">Gerado automaticamente a partir do endereço MAC do ESP32</small>
                     </div>
 
                     <!-- Action Buttons -->
@@ -166,27 +191,6 @@
                 </button>
             </section>
 
-            <!-- Info Section -->
-            <section class="info-section">
-                <h2>ℹ️ Informações</h2>
-                <div class="info-box">
-                    <p><strong>Como usar:</strong></p>
-                    <ul>
-                        <li>Configure o servidor MQTT (broker) e as credenciais</li>
-                        <li>Defina o tópico principal onde as mensagens serão publicadas</li>
-                        <li>Ative o MQTT usando o botão no topo</li>
-                        <li>Use a seção de teste para verificar se está funcionando</li>
-                        <li>O ESP32 se reconectará automaticamente em caso de perda de conexão</li>
-                    </ul>
-                    <p><strong>Brokers públicos para teste:</strong></p>
-                    <ul>
-                        <li>broker.hivemq.com (porta 1883)</li>
-                        <li>test.mosquitto.org (porta 1883)</li>
-                        <li>mqtt.eclipseprojects.io (porta 1883)</li>
-                    </ul>
-                </div>
-            </section>
-
             <!-- Error Section -->
             <section class="error-section" id="errorSection" style="display: none;">
                 <div class="error-banner" id="errorBanner">
@@ -208,9 +212,7 @@
             </section>
         </main>
 
-        <footer>
-            <p>ESP32 MQTT Client v1.0</p>
-        </footer>
+        <div id="footer-placeholder"></div>
     </div>
 
     <script src="header.js"></script>
@@ -218,5 +220,6 @@
         loadHeader('📡 MQTT');
     </script>
     <script src="mqtt.js"></script>
+    <script src="footer.js"></script>
 </body>
 </html>

@@ -43,49 +43,9 @@
                     </div>
                 </div>
             </section>
-
-            <!-- Status Info -->
-            <section class="info-section">
-                <h2>Informações do Sistema</h2>
-                <div class="info-grid">
-                    <div class="info-item">
-                        <span class="info-label">Plataforma:</span>
-                        <span class="info-value">ESP32</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Versão:</span>
-                        <span class="info-value">1.0.0</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Uptime:</span>
-                        <span class="info-value" id="uptime">Carregando...</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">WiFi:</span>
-                        <span class="info-value" id="wifi-status">Carregando...</span>
-                    </div>
-                </div>
-            </section>
-        </main>
         </main>
 
-        <!-- Log Console Section -->
-        <section class="log-section" style="margin-top: 20px;">
-            <div class="card">
-                <h2>System Logs</h2>
-                <div id="log-console"
-                    style="background: #1e1e1e; color: #00ff00; font-family: monospace; height: 200px; overflow-y: auto; padding: 10px; border-radius: 5px; font-size: 12px;">
-                    <div>Connecting to log server...</div>
-                </div>
-                <div style="margin-top: 10px;">
-                    <button onclick="clearLogs()" class="btn">Clear Logs</button>
-                </div>
-            </div>
-        </section>
-
-        <footer>
-            <p>ESP32 File Manager v1.0 | WiFi Manager & OTA Updates | © 2024</p>
-        </footer>
+        <div id="footer-placeholder"></div>
     </div>
 
     <script src="header.js"></script>
@@ -93,47 +53,7 @@
         loadHeader('🏠 ESP32 File Manager');
     </script>
     <script src="app.js"></script>
-    <script>
-        // WebSocket for Logs
-        const logConsole = document.getElementById('log-console');
-        let ws = new WebSocket('ws://' + window.location.hostname + '/ws');
-
-        ws.onopen = function () {
-            addLog('Connected to WebSocket');
-        };
-
-        ws.onmessage = function (evt) {
-            if (evt.data.startsWith('LOG:')) {
-                addLog(evt.data.substring(4));
-            } else {
-                addLog(evt.data);
-            }
-        };
-
-        ws.onclose = function () {
-            addLog('Disconnected from WebSocket');
-            setTimeout(function () {
-                ws = new WebSocket('ws://' + window.location.hostname + '/ws');
-            }, 2000);
-        };
-
-        function addLog(msg) {
-            const div = document.createElement('div');
-            const time = new Date().toLocaleTimeString();
-            div.textContent = `[${time}] ${msg}`;
-            logConsole.appendChild(div);
-            logConsole.scrollTop = logConsole.scrollHeight;
-
-            // Limit logs
-            while (logConsole.children.length > 100) {
-                logConsole.removeChild(logConsole.firstChild);
-            }
-        }
-
-        function clearLogs() {
-            logConsole.innerHTML = '';
-        }
-    </script>
+    <script src="footer.js"></script>
 </body>
 
 </html>

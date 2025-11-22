@@ -1,7 +1,7 @@
 {
   "wifi": {
-    "ssid": "Escalador",
-    "password": "Escalador@123",
+    "ssid": "FIESC_IOT",
+    "password": "urb@1983",
     "ap_mode": false
   },
   "oled": {
@@ -20,5 +20,15 @@
     "read_interval": 180,
     "fahrenheit": false,
     "custom_address": 0
+  },
+  "mqtt": {
+    "server": "10.22.31.200",
+    "port": 1883,
+    "username": "admin",
+    "password": "admin",
+    "hostname": "",
+    "main_topic": "dashfer",
+    "client_id": "",
+    "enabled": true
   }
 }

@@ -23,7 +23,9 @@ public:
         char username[32];
         char password[64];
         char clientId[32];
+        char hostname[32];
         char mainTopic[64];
+        uint16_t publish_interval;  // Status publish interval in seconds
         bool enabled;
     };
 
@@ -51,6 +53,9 @@ public:
     // Publish to main topic
     bool publishToMainTopic(const char* payload, bool retained = false);
 
+    // Publish to subtopic (hostname-based)
+    bool publishToSubtopic(const char* subtopic, const char* payload, bool retained = false);
+
     // Subscribe to topic
     bool subscribe(const char* topic);
 
@@ -68,7 +73,8 @@ public:
 
     // Update configuration
     void updateConfig(const char* server, uint16_t port, const char* username,
-                     const char* password, const char* mainTopic, bool enabled);
+                     const char* password, const char* hostname, const char* mainTopic,
+                     uint16_t publish_interval, bool enabled);
 
     // Get connection state
     int getState();
