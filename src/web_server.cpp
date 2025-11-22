@@ -485,9 +485,34 @@ void WebServerManager::handleFileRead(AsyncWebServerRequest *request) {
         return;
       }
 
-      String content = "";
-      content.reserve(fileSize + 1);
-      while (file.available()) content += (char)file.read();
+      // Check if we have enough heap memory before allocating
+      // Need: buffer + String overhead + JsonDocument + response String
+      size_t requiredHeap = (fileSize * 3) + 2048; // Conservative estimate
+      if (ESP.getFreeHeap() < requiredHeap) {
+        file.close();
+        xSemaphoreGive(*spiffsMutex);
+        Serial.printf("ERROR: Insufficient heap for file read. Need: %u, Available: %u\n",
+                      requiredHeap, ESP.getFreeHeap());
+        request->send(503, "application/json", "{\"error\":\"Insufficient memory\"}");
+        return;
+      }
+
+      // Allocate buffer and read file in one operation (prevents fragmentation)
+      char* buffer = (char*)malloc(fileSize + 1);
+      if (!buffer) {
+        file.close();
+        xSemaphoreGive(*spiffsMutex);
+        Serial.println("ERROR: Failed to allocate buffer for file read");
+        request->send(500, "application/json", "{\"error\":\"Memory allocation failed\"}");
+        return;
+      }
+
+      // Read entire file at once
+      size_t bytesRead = file.readBytes(buffer, fileSize);
+      buffer[bytesRead] = '\0';
+
+      String content = String(buffer);
+      free(buffer); // Free buffer immediately after use
 
       file.close();
       xSemaphoreGive(*spiffsMutex);
