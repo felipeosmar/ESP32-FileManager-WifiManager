@@ -692,7 +692,9 @@ void WebServerManager::handleMQTTConfigGet(AsyncWebServerRequest *request) {
     doc["port"] = config.port;
     doc["username"] = config.username;
     doc["password"] = config.password;
+    doc["hostname"] = config.hostname;
     doc["main_topic"] = config.mainTopic;
+    doc["publish_interval"] = config.publish_interval;
     doc["client_id"] = config.clientId;
     String response;
     serializeJson(doc, response);
@@ -705,7 +707,7 @@ void WebServerManager::handleMQTTConfigPost(AsyncWebServerRequest *request, uint
         JsonDocument doc;
         if (deserializeJson(doc, data, len)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
 
-        mqttManager->updateConfig(doc["server"] | "", doc["port"] | 1883, doc["username"] | "", doc["password"] | "", doc["main_topic"] | "esp32/data", doc["enabled"] | false);
+        mqttManager->updateConfig(doc["server"] | "", doc["port"] | 1883, doc["username"] | "", doc["password"] | "", doc["hostname"] | "ESP32-Device", doc["main_topic"] | "esp32/data", doc["publish_interval"] | 60, doc["enabled"] | false);
 
         if (xSemaphoreTake(*spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
             File configFile = LittleFS.open("/config.json", "r");

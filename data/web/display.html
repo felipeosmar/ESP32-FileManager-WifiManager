@@ -166,36 +166,6 @@
                 </button>
             </section>
 
-            <!-- Info Section -->
-            <section class="info-section">
-                <h2>ℹ️ Informações</h2>
-                <div class="info-box">
-                    <p><strong>Sobre o Display OLED:</strong></p>
-                    <ul>
-                        <li>Display I2C 128x64 pixels (SSD1306)</li>
-                        <li>Endereço I2C padrão: 0x3C ou 0x3D</li>
-                        <li>Pinos I2C padrão ESP32: SDA=21, SCL=22</li>
-                        <li>4 linhas de texto de até 21 caracteres cada</li>
-                    </ul>
-                    <p><strong>Modos de exibição disponíveis:</strong></p>
-                    <ul>
-                        <li><strong>Logo ESP32:</strong> Exibe logo de inicialização</li>
-                        <li><strong>Sistema:</strong> IP, uptime, memória livre</li>
-                        <li><strong>Rede:</strong> SSID, sinal WiFi, IP</li>
-                        <li><strong>MQTT:</strong> Status de conexão e servidor</li>
-                        <li><strong>Personalizado:</strong> Até 4 linhas de texto customizado</li>
-                    </ul>
-                    <p><strong>Conexão I2C:</strong></p>
-                    <ul>
-                        <li>Conecte VCC ao 3.3V do ESP32</li>
-                        <li>Conecte GND ao GND do ESP32</li>
-                        <li>Conecte SDA ao GPIO 21 (ou conforme configurado)</li>
-                        <li>Conecte SCL ao GPIO 22 (ou conforme configurado)</li>
-                        <li>Conecte RST ao GPIO configurado (opcional, use -1 para desabilitar)</li>
-                    </ul>
-                </div>
-            </section>
-
             <!-- Error Section -->
             <section class="error-section" id="errorSection" style="display: none;">
                 <div class="error-banner" id="errorBanner">
@@ -217,9 +187,7 @@
             </section>
         </main>
 
-        <footer>
-            <p>ESP32 OLED Display Manager v1.0</p>
-        </footer>
+        <div id="footer-placeholder"></div>
     </div>
 
     <script src="header.js"></script>
@@ -227,6 +195,7 @@
         loadHeader('📺 Display OLED');
     </script>
     <script src="display.js"></script>
+    <script src="footer.js"></script>
 </body>
 
 </html>

@@ -10,9 +10,11 @@ MQTTManager::MQTTManager() : mqttClient(wifiClient), lastReconnectAttempt(0) {
     config.port = 1883;
     strcpy(config.username, "");
     strcpy(config.password, "");
+    strcpy(config.hostname, "ESP32-Device");
     strcpy(config.mainTopic, "esp32/data");
+    config.publish_interval = 60;  // Default: 60 seconds
     config.enabled = false;
-    generateClientId();
+    generateClientId();  // Always generate from MAC
 }
 
 MQTTManager::~MQTTManager() {
@@ -51,20 +53,20 @@ bool MQTTManager::loadConfig(const JsonDocument& doc) {
     config.port = mqtt["port"] | 1883;
     strlcpy(config.username, mqtt["username"] | "", sizeof(config.username));
     strlcpy(config.password, mqtt["password"] | "", sizeof(config.password));
+    strlcpy(config.hostname, mqtt["hostname"] | "ESP32-Device", sizeof(config.hostname));
     strlcpy(config.mainTopic, mqtt["main_topic"] | "esp32/data", sizeof(config.mainTopic));
+    config.publish_interval = mqtt["publish_interval"] | 60;  // Default: 60 seconds
     config.enabled = mqtt["enabled"] | false;
 
-    if (mqtt.containsKey("client_id") && strlen(mqtt["client_id"]) > 0) {
-        strlcpy(config.clientId, mqtt["client_id"], sizeof(config.clientId));
-    } else {
-        generateClientId();
-    }
+    // Always generate Client ID from MAC address (ignore saved client_id)
+    generateClientId();
 
     Serial.println("MQTT: Configuration loaded");
     Serial.printf("  Server: %s:%d\n", config.server, config.port);
     Serial.printf("  Username: %s\n", strlen(config.username) > 0 ? config.username : "(none)");
+    Serial.printf("  Hostname: %s\n", config.hostname);
     Serial.printf("  Main Topic: %s\n", config.mainTopic);
-    Serial.printf("  Client ID: %s\n", config.clientId);
+    Serial.printf("  Client ID: %s (MAC-based)\n", config.clientId);
     Serial.printf("  Enabled: %s\n", config.enabled ? "Yes" : "No");
 
     return true;
@@ -77,16 +79,20 @@ void MQTTManager::saveConfig(JsonDocument& doc) {
     mqtt["port"] = config.port;
     mqtt["username"] = config.username;
     mqtt["password"] = config.password;
+    mqtt["hostname"] = config.hostname;
     mqtt["main_topic"] = config.mainTopic;
-    mqtt["client_id"] = config.clientId;
+    mqtt["publish_interval"] = config.publish_interval;
+    mqtt["client_id"] = config.clientId;  // Save for reference, but will be regenerated on load
     mqtt["enabled"] = config.enabled;
 }
 
 void MQTTManager::generateClientId() {
+    // Always use full MAC address as Client ID
     uint8_t mac[6];
     WiFi.macAddress(mac);
     snprintf(config.clientId, sizeof(config.clientId),
-             "ESP32_%02X%02X%02X", mac[3], mac[4], mac[5]);
+             "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
 bool MQTTManager::connect() {
@@ -199,6 +205,20 @@ bool MQTTManager::publishToMainTopic(const char* payload, bool retained) {
     return publish(config.mainTopic, payload, retained);
 }
 
+bool MQTTManager::publishToSubtopic(const char* subtopic, const char* payload, bool retained) {
+    if (!mqttClient.connected()) {
+        lastError = "Not connected to MQTT broker";
+        return false;
+    }
+
+    // Build topic: mainTopic/hostname/subtopic
+    char fullTopic[128];
+    snprintf(fullTopic, sizeof(fullTopic), "%s/%s/%s",
+             config.mainTopic, config.hostname, subtopic);
+
+    return publish(fullTopic, payload, retained);
+}
+
 bool MQTTManager::subscribe(const char* topic) {
     if (!mqttClient.connected()) {
         lastError = "Not connected to MQTT broker";
@@ -270,7 +290,8 @@ int MQTTManager::getState() {
 }
 
 void MQTTManager::updateConfig(const char* server, uint16_t port, const char* username,
-                               const char* password, const char* mainTopic, bool enabled) {
+                               const char* password, const char* hostname, const char* mainTopic,
+                               uint16_t publish_interval, bool enabled) {
     bool wasConnected = mqttClient.connected();
 
     if (wasConnected) {
@@ -281,10 +302,18 @@ void MQTTManager::updateConfig(const char* server, uint16_t port, const char* us
     config.port = port;
     strlcpy(config.username, username, sizeof(config.username));
     strlcpy(config.password, password, sizeof(config.password));
+    strlcpy(config.hostname, hostname, sizeof(config.hostname));
     strlcpy(config.mainTopic, mainTopic, sizeof(config.mainTopic));
+    config.publish_interval = publish_interval;
     config.enabled = enabled;
 
+    // Client ID is always based on MAC, so regenerate it
+    generateClientId();
+
     Serial.println("MQTT: Configuration updated");
+    Serial.printf("  Hostname: %s\n", config.hostname);
+    Serial.printf("  Publish Interval: %d seconds\n", config.publish_interval);
+    Serial.printf("  Client ID: %s (MAC-based)\n", config.clientId);
 
     if (config.enabled) {
         mqttClient.setServer(config.server, config.port);
