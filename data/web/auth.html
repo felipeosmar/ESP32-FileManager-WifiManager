@@ -74,7 +74,7 @@
 
             <!-- Password Requirements -->
             <section class="info-section">
-                <h3>📋 Requisitos de Senha</h3>
+                <h2>📋 Requisitos de Senha</h2>
                 <ul>
                     <li>Mínimo de 8 caracteres</li>
                     <li>Pelo menos 1 letra maiúscula (A-Z)</li>
@@ -84,13 +84,14 @@
             </section>
         </main>
 
-        <footer>
-            <p>ESP32 File Manager &copy; 2024</p>
-        </footer>
+        <div id="footer-placeholder"></div>
     </div>
 
     <script src="header.js"></script>
+    <script>
+        loadHeader('🔐 Autenticação');
+    </script>
     <script src="auth.js"></script>
-    <script src="app.js"></script>
+    <script src="footer.js"></script>
 </body>
 </html>

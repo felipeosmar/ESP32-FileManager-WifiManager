@@ -2,7 +2,7 @@
   "web": {
     "username": "admin",
     "password_hash": "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918",
-    "first_login": false
+    "first_login": true
   },
   "wifi": {
     "ssid": "CasaFeliz",
@@ -34,6 +34,12 @@
     "hostname": "EDXXX",
     "main_topic": "dashfer",
     "client_id": "",
+    "enabled": false
+  },
+  "ntp": {
+    "server": "pool.ntp.org",
+    "offset": -10800,
+    "interval": 3600000,
     "enabled": false
   }
 }
