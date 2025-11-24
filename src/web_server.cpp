@@ -7,11 +7,12 @@
 WebServerManager::WebServerManager() : server(80), ws("/ws"), otaUploadInProgress(false) {
 }
 
-void WebServerManager::begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SensorManager* sensor, SemaphoreHandle_t* mutex) {
+void WebServerManager::begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SensorManager* sensor, NTPManager* ntp, SemaphoreHandle_t* mutex) {
     this->spiffsManager = spiffs;
     this->mqttManager = mqtt;
     this->oledManager = oled;
     this->sensorManager = sensor;
+    this->ntpManager = ntp;
     this->spiffsMutex = mutex;
 
     // Carregar credenciais web do config.json
@@ -527,6 +528,24 @@ void WebServerManager::setupRoutes() {
             handleSensorConfigPost(request, data, len, index, total);
         }
     );
+
+    server.on("/ntp", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        if (!checkAuth(request)) return;
+        validateOTABoot();
+        if (spiffsManager->isReady()) request->send(LittleFS, "/web/ntp.html", "text/html");
+        else request->send(503, "text/plain", "SPIFFS not ready");
+    });
+    server.on("/ntp.js", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        serveStaticFile(request, "/web/ntp.js", "application/javascript");
+    });
+
+    server.on("/api/ntp/config", HTTP_GET, [this](AsyncWebServerRequest *request) { handleNTPConfigGet(request); });
+    server.on("/api/ntp/config", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+        [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+            handleNTPConfigPost(request, data, len, index, total);
+        }
+    );
+    server.on("/api/ntp/time", HTTP_GET, [this](AsyncWebServerRequest *request) { handleNTPTime(request); });
 
     // Authentication endpoints
     server.on("/api/auth/status", HTTP_GET, [this](AsyncWebServerRequest *request) { handleAuthStatus(request); });
@@ -1386,6 +1405,79 @@ void WebServerManager::handleChangePassword(AsyncWebServerRequest *request, uint
             request->send(500, "application/json", "{\"error\":\"Falha ao salvar credenciais\"}");
         }
     }
+}
+
+void WebServerManager::handleNTPConfigGet(AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
+
+    const NTPManager::NTPConfig& config = ntpManager->getConfig();
+    
+    StaticJsonDocument<512> doc;
+    doc["server"] = config.server;
+    doc["offset"] = config.offset;
+    doc["interval"] = config.interval;
+    doc["enabled"] = config.enabled;
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+}
+
+void WebServerManager::handleNTPConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    if (!checkAuth(request)) return;
+    if (index == 0) {
+        StaticJsonDocument<256> doc;
+        if (deserializeJson(doc, data, len)) { 
+            request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); 
+            return; 
+        }
+
+        const char* server = doc["server"] | "pool.ntp.org";
+        long offset = doc["offset"] | -10800;
+        int interval = doc["interval"] | 60000;
+        bool enabled = doc["enabled"] | true;
+
+        ntpManager->updateConfig(server, offset, interval, enabled);
+
+        // Save to config.json
+        MutexGuard guard(*spiffsMutex, 5000, "ntpConfigSave");
+        if (!guard.acquired()) {
+            request->send(503, "application/json", "{\"error\":\"System busy\"}");
+            return;
+        }
+
+        File configFile = LittleFS.open("/config.json", "r");
+        StaticJsonDocument<1536> configDoc;
+        if (configFile) { 
+            deserializeJson(configDoc, configFile); 
+            configFile.close(); 
+        }
+
+        ntpManager->saveConfig(configDoc);
+
+        configFile = LittleFS.open("/config.json", "w");
+        if (!configFile) {
+            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
+            return;
+        }
+
+        serializeJson(configDoc, configFile);
+        configFile.close();
+        request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
+    }
+}
+
+void WebServerManager::handleNTPTime(AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
+
+    StaticJsonDocument<256> doc;
+    doc["time"] = ntpManager->getFormattedTime();
+    doc["enabled"] = ntpManager->getConfig().enabled;
+    doc["synced"] = ntpManager->isTimeSet();
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
 }
 
 void WebServerManager::handleOTA(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {

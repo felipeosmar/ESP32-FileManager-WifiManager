@@ -18,14 +18,13 @@
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
-#include <NTPClient.h>
-#include <WiFiUdp.h>
 #include "config.h"
 #include "web_server.h"
 #include "spiffs_manager.h"
 #include "mqtt_manager.h"
 #include "oled_manager.h"
 #include "sensor_manager.h"
+#include "ntp_manager.h"
 
 // Global objects
 WebServerManager webServerManager;
@@ -33,10 +32,7 @@ SPIFFSManager spiffsManager;
 MQTTManager mqttManager;
 OLEDManager oledManager;
 SensorManager sensorManager;
-
-// NTP Client
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", -10800, 60000); // UTC-3 (Brazil), update every 60s
+NTPManager ntpManager;
 
 // Mutex for SPIFFS access (prevents concurrent access issues)
 SemaphoreHandle_t spiffsMutex = NULL;
@@ -119,8 +115,7 @@ void setup() {
 
   // Initialize NTP (only if connected to internet)
   if (wifiConnectedToInternet) {
-    timeClient.begin();
-    log("NTP Client started");
+    ntpManager.begin();
   } else {
     log("NTP Client skipped (no internet connection)");
   }
@@ -152,7 +147,7 @@ void setup() {
   }
 
   // Setup web server
-  webServerManager.begin(&spiffsManager, &mqttManager, &oledManager, &sensorManager, &spiffsMutex);
+  webServerManager.begin(&spiffsManager, &mqttManager, &oledManager, &sensorManager, &ntpManager, &spiffsMutex);
 
   log("\n=== System Ready ===");
   Serial.print("Web interface: http://");
@@ -162,10 +157,8 @@ void setup() {
 }
 
 void loop() {
-  // Update NTP (only if connected to internet)
-  if (wifiConnectedToInternet) {
-    timeClient.update();
-  }
+  // Update NTP
+  ntpManager.update();
 
   // Update WebServer (WebSocket)
   webServerManager.loop();
@@ -344,6 +337,9 @@ bool loadConfig() {
 
   // Load Sensor configuration
   sensorManager.loadConfig(doc);
+
+  // Load NTP configuration
+  ntpManager.loadConfig(doc);
 
   log("Configuration loaded from SPIFFS");
   return true;

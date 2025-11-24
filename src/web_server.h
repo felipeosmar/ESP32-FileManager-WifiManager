@@ -9,6 +9,7 @@
 #include "mqtt_manager.h"
 #include "oled_manager.h"
 #include "sensor_manager.h"
+#include "ntp_manager.h"
 #include "auth_manager.h"
 #include "raii_guards.h"
 #include <AsyncWebSocket.h>
@@ -16,7 +17,7 @@
 class WebServerManager {
 public:
     WebServerManager();
-    void begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SensorManager* sensor, SemaphoreHandle_t* spiffsMutex);
+    void begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SensorManager* sensor, NTPManager* ntp, SemaphoreHandle_t* spiffsMutex);
     void loop();
     void broadcastLog(const String& message);
 
@@ -27,6 +28,7 @@ private:
     MQTTManager* mqttManager;
     OLEDManager* oledManager;
     SensorManager* sensorManager;
+    NTPManager* ntpManager;
     SemaphoreHandle_t* spiffsMutex;
     
     bool otaUploadInProgress;
@@ -76,6 +78,10 @@ private:
     void handleSensorStatus(AsyncWebServerRequest *request);
     void handleSensorConfigGet(AsyncWebServerRequest *request);
     void handleSensorConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+
+    void handleNTPConfigGet(AsyncWebServerRequest *request);
+    void handleNTPConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+    void handleNTPTime(AsyncWebServerRequest *request);
 
     void handleAuthStatus(AsyncWebServerRequest *request);
     void handleChangePassword(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);

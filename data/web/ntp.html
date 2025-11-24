@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NTP Configuration - ESP32 File Manager</title>
+    <link href="/unified.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div id="header-placeholder"></div>
+
+        <main>
+            <h1>⏰ NTP Configuration</h1>
+
+            <!-- Current Time Display -->
+            <section class="status-section">
+                <div class="status-card" id="time-status">
+                    <span class="status-icon">🕒</span>
+                    <div class="status-info">
+                        <h2>Current Time</h2>
+                        <div class="status-value" id="current-time">--:--:--</div>
+                        <div class="uptime" id="sync-status">Checking...</div>
+                    </div>
+                    <div class="refresh-btn" onclick="refreshTime()">
+                        <span class="refresh-icon">↻</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- NTP Configuration Form -->
+            <section>
+                <h2>Configuration</h2>
+                <form id="ntp-config-form">
+                    <div class="form-group">
+                        <label for="ntp-enabled">
+                            <input type="checkbox" id="ntp-enabled" name="enabled">
+                            Enable NTP Synchronization
+                        </label>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ntp-server">NTP Server:</label>
+                        <input type="text" id="ntp-server" name="server" class="form-input" 
+                               placeholder="pool.ntp.org" required>
+                        <small>Default: pool.ntp.org, time.google.com, time.nist.gov</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ntp-offset">Timezone Offset (seconds):</label>
+                        <select id="ntp-offset" name="offset" class="form-input">
+                            <option value="-43200">UTC-12:00</option>
+                            <option value="-39600">UTC-11:00</option>
+                            <option value="-36000">UTC-10:00</option>
+                            <option value="-32400">UTC-09:00</option>
+                            <option value="-28800">UTC-08:00 (PST)</option>
+                            <option value="-25200">UTC-07:00 (MST)</option>
+                            <option value="-21600">UTC-06:00 (CST)</option>
+                            <option value="-18000">UTC-05:00 (EST)</option>
+                            <option value="-14400">UTC-04:00</option>
+                            <option value="-10800">UTC-03:00 (BRT - Brazil)</option>
+                            <option value="-7200">UTC-02:00</option>
+                            <option value="-3600">UTC-01:00</option>
+                            <option value="0">UTC±00:00 (GMT)</option>
+                            <option value="3600">UTC+01:00 (CET)</option>
+                            <option value="7200">UTC+02:00</option>
+                            <option value="10800">UTC+03:00</option>
+                            <option value="14400">UTC+04:00</option>
+                            <option value="18000">UTC+05:00</option>
+                            <option value="19800">UTC+05:30 (IST)</option>
+                            <option value="21600">UTC+06:00</option>
+                            <option value="25200">UTC+07:00</option>
+                            <option value="28800">UTC+08:00 (CST China)</option>
+                            <option value="32400">UTC+09:00 (JST)</option>
+                            <option value="36000">UTC+10:00</option>
+                            <option value="39600">UTC+11:00</option>
+                            <option value="43200">UTC+12:00</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ntp-interval">Update Interval (milliseconds):</label>
+                        <input type="number" id="ntp-interval" name="interval" class="form-input" 
+                               min="10000" max="3600000" step="1000" value="60000" required>
+                        <small>How often to sync time (10000ms = 10s, 60000ms = 1min)</small>
+                    </div>
+
+                    <div class="toolbar">
+                        <button type="submit" class="btn btn-primary">💾 Save Configuration</button>
+                        <button type="button" class="btn btn-secondary" onclick="loadConfig()">🔄 Reload</button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Information Section -->
+            <section class="info-section">
+                <h2>ℹ️ Information</h2>
+                <div class="info-card">
+                    <p><strong>NTP (Network Time Protocol)</strong> synchronizes your device's clock with internet time servers.</p>
+                    <ul>
+                        <li>Ensure your device has internet connectivity</li>
+                        <li>Choose a reliable NTP server (pool.ntp.org recommended)</li>
+                        <li>Set the correct timezone offset for your region</li>
+                        <li>Lower update intervals consume more network bandwidth</li>
+                    </ul>
+                </div>
+            </section>
+        </main>
+
+        <div id="footer-placeholder"></div>
+    </div>
+
+    <script src="/header.js"></script>
+    <script src="/ntp.js"></script>
+    <script src="/footer.js"></script>
+</body>
+</html>
