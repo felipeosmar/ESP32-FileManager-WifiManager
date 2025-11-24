@@ -9,6 +9,8 @@
 #include "mqtt_manager.h"
 #include "oled_manager.h"
 #include "sensor_manager.h"
+#include "auth_manager.h"
+#include "raii_guards.h"
 #include <AsyncWebSocket.h>
 
 class WebServerManager {
@@ -30,11 +32,19 @@ private:
     bool otaUploadInProgress;
     String otaUploadError;
 
+    // Web Authentication
+    String webUsername;
+    String webPasswordHash;
+    bool firstLogin;
+
     // Helper functions
     void setupRoutes();
     void serveStaticFile(AsyncWebServerRequest *request, const char* filepath, const char* contentType);
     bool checkAuth(AsyncWebServerRequest *request);
     void validateOTABoot();
+    bool loadWebCredentials();
+    bool saveWebCredentials(const String& username, const String& passwordHash, bool firstLogin);
+    bool isValidPath(const String& path);
     
     // Route handlers
     void handleRoot(AsyncWebServerRequest *request);
@@ -66,7 +76,10 @@ private:
     void handleSensorStatus(AsyncWebServerRequest *request);
     void handleSensorConfigGet(AsyncWebServerRequest *request);
     void handleSensorConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
-    
+
+    void handleAuthStatus(AsyncWebServerRequest *request);
+    void handleChangePassword(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+
     void handleOTA(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
     bool isValidESP32Firmware(uint8_t *data, size_t len);
 };

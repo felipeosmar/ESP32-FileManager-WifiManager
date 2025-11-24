@@ -65,16 +65,16 @@ bool SensorManager::initializeSensor(SensorType type, uint8_t address) {
     currentSensor = createSensor(type, address);
 
     if (currentSensor == nullptr) {
-        lastError = "Failed to create sensor instance";
-        Serial.printf("SensorManager: %s\n", lastError.c_str());
+        strlcpy(lastError, "Failed to create sensor instance", sizeof(lastError));
+        Serial.printf("SensorManager: %s\n", lastError);
         return false;
     }
 
     // Initialize sensor
     if (!currentSensor->begin(wire, i2cMutex)) {
-        lastError = currentSensor->getLastError();
+        strlcpy(lastError, currentSensor->getLastError().c_str(), sizeof(lastError));
         Serial.printf("SensorManager: Failed to initialize %s: %s\n",
-                      sensorTypeToString(type).c_str(), lastError.c_str());
+                      sensorTypeToString(type).c_str(), lastError);
         releaseSensor();
         return false;
     }
@@ -90,7 +90,7 @@ bool SensorManager::autoDetect() {
     }
 
     if (wire == nullptr) {
-        lastError = "Wire interface is null";
+        strlcpy(lastError, "Wire interface is null", sizeof(lastError));
         Serial.println("SensorManager: Wire interface is null");
         return false;
     }
@@ -147,8 +147,8 @@ bool SensorManager::autoDetect() {
         delete testSensor;
     }
 
-    lastError = "No supported sensor found";
-    Serial.printf("SensorManager: %s\n", lastError.c_str());
+    strlcpy(lastError, "No supported sensor found", sizeof(lastError));
+    Serial.printf("SensorManager: %s\n", lastError);
     return false;
 }
 
@@ -162,7 +162,7 @@ bool SensorManager::begin(TwoWire* wireInterface, SemaphoreHandle_t mutex) {
     i2cMutex = mutex;
 
     if (wire == nullptr) {
-        lastError = "Wire interface is null";
+        strlcpy(lastError, "Wire interface is null", sizeof(lastError));
         Serial.println("SensorManager: Wire interface is null");
         return false;
     }
@@ -257,12 +257,12 @@ bool SensorManager::isAvailable() const {
 
 bool SensorManager::readSensor() {
     if (!config.enabled) {
-        lastError = "Sensor manager disabled";
+        strlcpy(lastError, "Sensor manager disabled", sizeof(lastError));
         return false;
     }
 
     if (currentSensor == nullptr) {
-        lastError = "No sensor initialized";
+        strlcpy(lastError, "No sensor initialized", sizeof(lastError));
         return false;
     }
 
@@ -304,14 +304,19 @@ SensorType SensorManager::getDetectedSensorType() const {
     return currentSensor->getType();
 }
 
-String SensorManager::getDetectedSensorName() const {
-    if (currentSensor == nullptr) return "None";
-    return currentSensor->getName();
+void SensorManager::getDetectedSensorName(char* buffer, size_t bufferSize) const {
+    if (buffer == nullptr || bufferSize == 0) return;
+
+    if (currentSensor == nullptr) {
+        strlcpy(buffer, "None", bufferSize);
+    } else {
+        strlcpy(buffer, currentSensor->getName().c_str(), bufferSize);
+    }
 }
 
 bool SensorManager::softReset() {
     if (currentSensor == nullptr) {
-        lastError = "No sensor initialized";
+        strlcpy(lastError, "No sensor initialized", sizeof(lastError));
         return false;
     }
     return currentSensor->reset();

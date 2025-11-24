@@ -30,7 +30,7 @@ bool MQTTManager::begin() {
     }
 
     if (strlen(config.server) == 0) {
-        lastError = "MQTT server not configured";
+        strlcpy(lastError, "MQTT server not configured", sizeof(lastError));
         Serial.println("MQTT: Server not configured");
         return false;
     }
@@ -97,7 +97,7 @@ void MQTTManager::generateClientId() {
 
 bool MQTTManager::connect() {
     if (!config.enabled) {
-        lastError = "MQTT is disabled";
+        strlcpy(lastError, "MQTT is disabled", sizeof(lastError));
         return false;
     }
 
@@ -120,11 +120,12 @@ bool MQTTManager::connect() {
 
     if (connected) {
         Serial.println("MQTT: Connected successfully");
-        lastError = "";
+        lastError[0] = '\0';  // Limpar erro
 
         // Publish connection status
-        String statusTopic = String(config.mainTopic) + "/status";
-        publish(statusTopic.c_str(), "online", true);
+        char statusTopic[MQTT_TOPIC_BUFFER_SIZE];
+        snprintf(statusTopic, sizeof(statusTopic), "%s/status", config.mainTopic);
+        publish(statusTopic, "online", true);
 
         return true;
     } else {
@@ -133,34 +134,34 @@ bool MQTTManager::connect() {
 
         switch (state) {
             case -4:
-                lastError = "Connection timeout";
+                strlcpy(lastError, "Connection timeout", sizeof(lastError));
                 break;
             case -3:
-                lastError = "Connection lost";
+                strlcpy(lastError, "Connection lost", sizeof(lastError));
                 break;
             case -2:
-                lastError = "Connect failed";
+                strlcpy(lastError, "Connect failed", sizeof(lastError));
                 break;
             case -1:
-                lastError = "Disconnected";
+                strlcpy(lastError, "Disconnected", sizeof(lastError));
                 break;
             case 1:
-                lastError = "Bad protocol";
+                strlcpy(lastError, "Bad protocol", sizeof(lastError));
                 break;
             case 2:
-                lastError = "Bad client ID";
+                strlcpy(lastError, "Bad client ID", sizeof(lastError));
                 break;
             case 3:
-                lastError = "Server unavailable";
+                strlcpy(lastError, "Server unavailable", sizeof(lastError));
                 break;
             case 4:
-                lastError = "Bad credentials";
+                strlcpy(lastError, "Bad credentials", sizeof(lastError));
                 break;
             case 5:
-                lastError = "Not authorized";
+                strlcpy(lastError, "Not authorized", sizeof(lastError));
                 break;
             default:
-                lastError = "Unknown error";
+                strlcpy(lastError, "Unknown error", sizeof(lastError));
                 break;
         }
 
@@ -185,7 +186,7 @@ bool MQTTManager::isConnected() {
 
 bool MQTTManager::publish(const char* topic, const char* payload, bool retained) {
     if (!mqttClient.connected()) {
-        lastError = "Not connected to MQTT broker";
+        strlcpy(lastError, "Not connected to MQTT broker", sizeof(lastError));
         return false;
     }
 
@@ -195,7 +196,7 @@ bool MQTTManager::publish(const char* topic, const char* payload, bool retained)
         Serial.printf("MQTT: Published to %s: %s\n", topic, payload);
     } else {
         Serial.printf("MQTT: Failed to publish to %s\n", topic);
-        lastError = "Publish failed";
+        strlcpy(lastError, "Publish failed", sizeof(lastError));
     }
 
     return success;
@@ -207,21 +208,59 @@ bool MQTTManager::publishToMainTopic(const char* payload, bool retained) {
 
 bool MQTTManager::publishToSubtopic(const char* subtopic, const char* payload, bool retained) {
     if (!mqttClient.connected()) {
-        lastError = "Not connected to MQTT broker";
+        strlcpy(lastError, "Not connected to MQTT broker", sizeof(lastError));
+        return false;
+    }
+
+    // Validate subtopic parameter length
+    size_t subtopicLen = strlen(subtopic);
+    if (subtopicLen > MQTT_MAX_SUBTOPIC_LEN) {
+        setError("MQTT subtopic too long: %zu bytes (max %d)", subtopicLen, MQTT_MAX_SUBTOPIC_LEN);
+        Serial.println(lastError);
         return false;
     }
 
     // Build topic: mainTopic/hostname/subtopic
-    char fullTopic[128];
-    snprintf(fullTopic, sizeof(fullTopic), "%s/%s/%s",
-             config.mainTopic, config.hostname, subtopic);
+    char fullTopic[MQTT_TOPIC_BUFFER_SIZE];
+
+    // Calculate required size BEFORE formatting
+    // mainTopic (max 64) + "/" + hostname (max 32) + "/" + subtopic (max 128) + null terminator
+    size_t mainTopicLen = strlen(config.mainTopic);
+    size_t hostnameLen = strlen(config.hostname);
+    size_t requiredSize = mainTopicLen + 1 + hostnameLen + 1 + subtopicLen + 1; // +1 for each '/' and null
+
+    // Validate total size fits in buffer
+    if (requiredSize > sizeof(fullTopic)) {
+        setError("MQTT topic too long: %zu bytes (max %zu)", requiredSize, sizeof(fullTopic));
+        Serial.println(lastError);
+        Serial.printf("  mainTopic: %zu, hostname: %zu, subtopic: %zu\n",
+                     mainTopicLen, hostnameLen, subtopicLen);
+        return false;
+    }
+
+    // Perform formatting
+    int written = snprintf(fullTopic, sizeof(fullTopic), "%s/%s/%s",
+                          config.mainTopic, config.hostname, subtopic);
+
+    // Check for truncation (snprintf returns number of chars that WOULD have been written)
+    if (written < 0) {
+        strlcpy(lastError, "MQTT topic formatting error", sizeof(lastError));
+        Serial.println(lastError);
+        return false;
+    }
+
+    if ((size_t)written >= sizeof(fullTopic)) {
+        setError("MQTT topic truncated: %d chars needed, %zu available", written, sizeof(fullTopic));
+        Serial.println(lastError);
+        return false;
+    }
 
     return publish(fullTopic, payload, retained);
 }
 
 bool MQTTManager::subscribe(const char* topic) {
     if (!mqttClient.connected()) {
-        lastError = "Not connected to MQTT broker";
+        strlcpy(lastError, "Not connected to MQTT broker", sizeof(lastError));
         return false;
     }
 
@@ -231,7 +270,7 @@ bool MQTTManager::subscribe(const char* topic) {
         Serial.printf("MQTT: Subscribed to %s\n", topic);
     } else {
         Serial.printf("MQTT: Failed to subscribe to %s\n", topic);
-        lastError = "Subscribe failed";
+        strlcpy(lastError, "Subscribe failed", sizeof(lastError));
     }
 
     return success;
@@ -298,14 +337,58 @@ void MQTTManager::updateConfig(const char* server, uint16_t port, const char* us
         disconnect();
     }
 
+    // Validate and copy configuration with truncation warnings
+    size_t serverLen = strlen(server);
+    if (serverLen >= sizeof(config.server)) {
+        Serial.printf("WARNING: MQTT server truncated from %zu to %zu bytes\n",
+                     serverLen, sizeof(config.server) - 1);
+    }
     strlcpy(config.server, server, sizeof(config.server));
+
     config.port = port;
+
+    size_t usernameLen = strlen(username);
+    if (usernameLen >= sizeof(config.username)) {
+        Serial.printf("WARNING: MQTT username truncated from %zu to %zu bytes\n",
+                     usernameLen, sizeof(config.username) - 1);
+    }
     strlcpy(config.username, username, sizeof(config.username));
+
+    size_t passwordLen = strlen(password);
+    if (passwordLen >= sizeof(config.password)) {
+        Serial.printf("WARNING: MQTT password truncated from %zu to %zu bytes\n",
+                     passwordLen, sizeof(config.password) - 1);
+    }
     strlcpy(config.password, password, sizeof(config.password));
+
+    size_t hostnameLen = strlen(hostname);
+    if (hostnameLen >= sizeof(config.hostname)) {
+        Serial.printf("WARNING: MQTT hostname truncated from %zu to %zu bytes\n",
+                     hostnameLen, sizeof(config.hostname) - 1);
+    }
     strlcpy(config.hostname, hostname, sizeof(config.hostname));
+
+    size_t mainTopicLen = strlen(mainTopic);
+    if (mainTopicLen >= sizeof(config.mainTopic)) {
+        Serial.printf("WARNING: MQTT mainTopic truncated from %zu to %zu bytes\n",
+                     mainTopicLen, sizeof(config.mainTopic) - 1);
+    }
     strlcpy(config.mainTopic, mainTopic, sizeof(config.mainTopic));
+
     config.publish_interval = publish_interval;
     config.enabled = enabled;
+
+    // Validate that mainTopic + hostname combination is reasonable
+    // Leave room for subtopic (at least 128 bytes) + 2 slashes + null terminator
+    size_t combinedLen = strlen(config.mainTopic) + strlen(config.hostname);
+    size_t maxCombined = MQTT_TOPIC_BUFFER_SIZE - MQTT_MAX_SUBTOPIC_LEN - 3; // -3 for two '/' and null
+
+    if (combinedLen > maxCombined) {
+        Serial.println("WARNING: mainTopic + hostname is too long!");
+        Serial.printf("  Combined length: %zu bytes\n", combinedLen);
+        Serial.printf("  Maximum recommended: %zu bytes\n", maxCombined);
+        Serial.printf("  This may cause issues with longer subtopics\n");
+    }
 
     // Client ID is always based on MAC, so regenerate it
     generateClientId();

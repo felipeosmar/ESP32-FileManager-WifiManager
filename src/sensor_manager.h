@@ -112,7 +112,7 @@ public:
      * Get last error message
      * @return Error description string
      */
-    String getLastError() const { return lastError; }
+    const char* getLastError() const { return lastError; }
 
     /**
      * Get detected sensor type
@@ -122,9 +122,10 @@ public:
 
     /**
      * Get detected sensor name
-     * @return Human-readable sensor name
+     * @param buffer Buffer to store sensor name
+     * @param bufferSize Size of buffer
      */
-    String getDetectedSensorName() const;
+    void getDetectedSensorName(char* buffer, size_t bufferSize) const;
 
     /**
      * Auto-detect available sensors on I2C bus
@@ -144,8 +145,16 @@ private:
     SensorConfig config;
     ISensor* currentSensor;          // Currently active sensor
     SensorData dummyData;            // Dummy data for when no sensor is active
-    String lastError;
+    char lastError[128];             // ✅ Buffer estático em vez de String dinâmica
     unsigned long lastReadTime;
+
+    // Helper para definir erro com formatação
+    void setError(const char* format, ...) {
+        va_list args;
+        va_start(args, format);
+        vsnprintf(lastError, sizeof(lastError), format, args);
+        va_end(args);
+    }
 
     // Helper functions
     bool initializeSensor(SensorType type, uint8_t address = 0);

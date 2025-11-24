@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autenticação - ESP32</title>
+    <link rel="stylesheet" href="unified.css">
+</head>
+<body>
+    <div class="container">
+        <div id="header-placeholder"></div>
+
+        <main>
+            <!-- Alert for first login -->
+            <div id="first-login-alert" class="alert alert-warning" style="display: none;">
+                <strong>⚠️ Primeiro Acesso Detectado!</strong>
+                <p>Por segurança, você deve alterar a senha padrão antes de continuar usando o sistema.</p>
+            </div>
+
+            <!-- Current User Info -->
+            <section class="info-section">
+                <h2>👤 Informações do Usuário</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Usuário</span>
+                        <span class="info-value" id="current-username">Carregando...</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Status</span>
+                        <span class="info-value" id="auth-status">--</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Change Password Section -->
+            <section>
+                <h2>🔐 Alterar Senha</h2>
+                <form id="change-password-form" onsubmit="changePassword(event)">
+                    <div class="form-group">
+                        <label for="username">Nome de Usuário</label>
+                        <input type="text" id="username" name="username" placeholder="admin" required>
+                        <small>Deixe em branco para manter o usuário atual</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="current-password">Senha Atual</label>
+                        <input type="password" id="current-password" name="current_password" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="new-password">Nova Senha</label>
+                        <input type="password" id="new-password" name="new_password" required>
+                        <small>Mínimo 8 caracteres, com letras maiúsculas, minúsculas e números</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="confirm-password">Confirmar Nova Senha</label>
+                        <input type="password" id="confirm-password" name="confirm_password" required>
+                    </div>
+
+                    <div class="password-strength">
+                        <div class="password-strength-bar">
+                            <div id="strength-bar" class="strength-level"></div>
+                        </div>
+                        <small id="strength-text">Digite uma senha</small>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">💾 Alterar Senha</button>
+                        <button type="button" class="btn btn-secondary" onclick="resetForm()">🔄 Limpar</button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Password Requirements -->
+            <section class="info-section">
+                <h3>📋 Requisitos de Senha</h3>
+                <ul>
+                    <li>Mínimo de 8 caracteres</li>
+                    <li>Pelo menos 1 letra maiúscula (A-Z)</li>
+                    <li>Pelo menos 1 letra minúscula (a-z)</li>
+                    <li>Pelo menos 1 número (0-9)</li>
+                </ul>
+            </section>
+        </main>
+
+        <footer>
+            <p>ESP32 File Manager &copy; 2024</p>
+        </footer>
+    </div>
+
+    <script src="header.js"></script>
+    <script src="auth.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

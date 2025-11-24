@@ -131,7 +131,9 @@ void setup() {
   // Setup Temperature/Humidity Sensor (uses same I2C bus as OLED)
   // Supports: SHT20, SHT30, SHT40, AM2315 with auto-detection
   if (sensorManager.begin(&Wire, i2cMutex)) {
-    log("Sensor ready: " + sensorManager.getDetectedSensorName());
+    char sensorName[32];
+    sensorManager.getDetectedSensorName(sensorName, sizeof(sensorName));
+    log(String("Sensor ready: ") + sensorName);  // Temporariamente usando String para log
   } else {
     log("No temperature/humidity sensor detected");
   }
@@ -281,7 +283,7 @@ bool loadConfig() {
     return false;
   }
 
-  JsonDocument doc;
+  StaticJsonDocument<1536> doc;  // Config: wifi + mqtt + oled + sensor
   DeserializationError error = deserializeJson(doc, file);
   file.close();
 
@@ -319,7 +321,7 @@ void log(const String& msg) {
 }
 
 void publishSystemStatus() {
-  JsonDocument doc;
+  StaticJsonDocument<1024> doc;  // System status: uptime, memory, wifi, spiffs, cpu, sensor
 
   // System uptime
   unsigned long uptimeMs = millis();

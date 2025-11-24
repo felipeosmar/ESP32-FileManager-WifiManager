@@ -4,6 +4,7 @@
 
 #include "oled_manager.h"
 #include "config.h"
+#include "raii_guards.h"
 
 OLEDManager::OLEDManager()
     : display(nullptr),
@@ -62,20 +63,18 @@ bool OLEDManager::begin(SemaphoreHandle_t mutex) {
     }
     // Try to initialize display
     bool initSuccess = false;
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-            initSuccess = display->begin(SSD1306_SWITCHCAPVCC, config.address);
-            xSemaphoreGive(i2cMutex);
-        } else {
+    {
+        MutexGuard guard(i2cMutex, 1000, "OLED_init");
+        if (i2cMutex != nullptr && !guard.acquired()) {
             Serial.println("OLED: Failed to acquire mutex for initialization");
+        } else {
+            initSuccess = display->begin(SSD1306_SWITCHCAPVCC, config.address);
         }
-    } else {
-        initSuccess = display->begin(SSD1306_SWITCHCAPVCC, config.address);
-    }
+    }  // MutexGuard destroyed here, releasing mutex if it was acquired
 
     if (!initSuccess) {
-        lastError = "Display not found at address 0x" + String(config.address, HEX);
-        Serial.printf("OLED: %s\n", lastError.c_str());
+        setError("Display not found at address 0x%02X", config.address);
+        Serial.printf("OLED: %s\n", lastError);
         displayAvailable = false;
         delete display;
         display = nullptr;
@@ -93,15 +92,13 @@ bool OLEDManager::begin(SemaphoreHandle_t mutex) {
     // Clear display
     display->clearDisplay();
     display->setTextColor(SSD1306_WHITE);
-    
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+
+    {
+        MutexGuard guard(i2cMutex, 100, "OLED_display");
+        if (i2cMutex == nullptr || guard.acquired()) {
             display->display();
-            xSemaphoreGive(i2cMutex);
         }
-    } else {
-        display->display();
-    }
+    }  // MutexGuard destroyed here
 
     // Show logo on startup
     showLogo();
@@ -171,51 +168,42 @@ void OLEDManager::updateConfig(bool enabled, uint8_t address, uint8_t sda, uint8
 void OLEDManager::clear() {
     if (!displayAvailable) return;
     display->clearDisplay();
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+    {
+        MutexGuard guard(i2cMutex, 100, "OLED_clear");
+        if (i2cMutex == nullptr || guard.acquired()) {
             display->display();
-            xSemaphoreGive(i2cMutex);
         }
-    } else {
-        display->display();
     }
 }
 
 void OLEDManager::turnOn() {
     if (!displayAvailable) return;
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+    {
+        MutexGuard guard(i2cMutex, 100, "OLED_turnOn");
+        if (i2cMutex == nullptr || guard.acquired()) {
             display->ssd1306_command(SSD1306_DISPLAYON);
-            xSemaphoreGive(i2cMutex);
         }
-    } else {
-        display->ssd1306_command(SSD1306_DISPLAYON);
     }
 }
 
 void OLEDManager::turnOff() {
     if (!displayAvailable) return;
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+    {
+        MutexGuard guard(i2cMutex, 100, "OLED_turnOff");
+        if (i2cMutex == nullptr || guard.acquired()) {
             display->ssd1306_command(SSD1306_DISPLAYOFF);
-            xSemaphoreGive(i2cMutex);
         }
-    } else {
-        display->ssd1306_command(SSD1306_DISPLAYOFF);
     }
 }
 
 void OLEDManager::setBrightness(uint8_t brightness) {
     if (!displayAvailable) return;
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+    {
+        MutexGuard guard(i2cMutex, 100, "OLED_brightness");
+        if (i2cMutex == nullptr || guard.acquired()) {
             display->ssd1306_command(SSD1306_SETCONTRAST);
             display->ssd1306_command(brightness);
-            xSemaphoreGive(i2cMutex);
         }
-    } else {
-        display->ssd1306_command(SSD1306_SETCONTRAST);
-        display->ssd1306_command(brightness);
     }
     config.brightness = brightness;
 }
@@ -247,13 +235,11 @@ void OLEDManager::showLogo() {
     drawCenteredText("+ MQTT Client", 42);
     drawCenteredText("+ OLED Display", 54);
 
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+    {
+        MutexGuard guard(i2cMutex, 100, "OLED_showLogo");
+        if (i2cMutex == nullptr || guard.acquired()) {
             display->display();
-            xSemaphoreGive(i2cMutex);
         }
-    } else {
-        display->display();
     }
 }
 
@@ -277,12 +263,16 @@ void OLEDManager::showSystemInfo(const char* ip, unsigned long uptime, size_t fr
     // Uptime
     display->setCursor(0, 26);
     display->print("Uptime: ");
-    display->println(formatUptime(uptime).c_str());
+    char uptimeStr[32];
+    formatUptime(uptime, uptimeStr, sizeof(uptimeStr));
+    display->println(uptimeStr);
 
     // Free Heap
     display->setCursor(0, 38);
     display->print("Heap: ");
-    display->println(formatBytes(freeHeap).c_str());
+    char heapStr[16];
+    formatBytes(freeHeap, heapStr, sizeof(heapStr));
+    display->println(heapStr);
 
     // Heap usage bar
     uint32_t totalHeap = ESP.getHeapSize();
@@ -293,13 +283,11 @@ void OLEDManager::showSystemInfo(const char* ip, unsigned long uptime, size_t fr
     display->println("%");
     drawProgressBar(0, 62, SCREEN_WIDTH, 2, heapUsage);
 
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+    {
+        MutexGuard guard(i2cMutex, 100, "OLED_sysInfo");
+        if (i2cMutex == nullptr || guard.acquired()) {
             display->display();
-            xSemaphoreGive(i2cMutex);
         }
-    } else {
-        display->display();
     }
 }
 
@@ -341,13 +329,11 @@ void OLEDManager::showNetworkInfo(const char* ssid, int rssi, const char* ip) {
     display->print("IP: ");
     display->println(ip);
 
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+    {
+        MutexGuard guard(i2cMutex, 100, "OLED_netInfo");
+        if (i2cMutex == nullptr || guard.acquired()) {
             display->display();
-            xSemaphoreGive(i2cMutex);
         }
-    } else {
-        display->display();
     }
 }
 
@@ -384,13 +370,11 @@ void OLEDManager::showMQTTInfo(bool connected, const char* server, const char* t
     display->setCursor(0, 56);
     display->println(topic);
 
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+    {
+        MutexGuard guard(i2cMutex, 100, "OLED_mqttInfo");
+        if (i2cMutex == nullptr || guard.acquired()) {
             display->display();
-            xSemaphoreGive(i2cMutex);
         }
-    } else {
-        display->display();
     }
 }
 
@@ -423,13 +407,11 @@ void OLEDManager::showCustomText(const char* line1, const char* line2,
         display->println(line4);
     }
 
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+    {
+        MutexGuard guard(i2cMutex, 100, "OLED_customText");
+        if (i2cMutex == nullptr || guard.acquired()) {
             display->display();
-            xSemaphoreGive(i2cMutex);
         }
-    } else {
-        display->display();
     }
 }
 
@@ -448,13 +430,11 @@ void OLEDManager::showSensorInfo(bool available, float temperature, float humidi
     if (!available) {
         display->setCursor(0, 24);
         display->println("Sensor not detected");
-        if (i2cMutex != nullptr) {
-            if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+        {
+            MutexGuard guard(i2cMutex, 100, "OLED_sensorNA");
+            if (i2cMutex == nullptr || guard.acquired()) {
                 display->display();
-                xSemaphoreGive(i2cMutex);
             }
-        } else {
-            display->display();
         }
         return;
     }
@@ -480,13 +460,11 @@ void OLEDManager::showSensorInfo(bool available, float temperature, float humidi
     display->print(humidity, 1);
     display->print("%");
 
-    if (i2cMutex != nullptr) {
-        if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100))) {
+    {
+        MutexGuard guard(i2cMutex, 100, "OLED_sensorInfo");
+        if (i2cMutex == nullptr || guard.acquired()) {
             display->display();
-            xSemaphoreGive(i2cMutex);
         }
-    } else {
-        display->display();
     }
 }
 
@@ -551,26 +529,28 @@ void OLEDManager::drawProgressBar(int16_t x, int16_t y, int16_t width, int16_t h
     }
 }
 
-String OLEDManager::formatUptime(unsigned long seconds) {
+void OLEDManager::formatUptime(unsigned long seconds, char* buffer, size_t bufferSize) {
+    if (buffer == nullptr || bufferSize == 0) return;
+
     unsigned long days = seconds / 86400;
     unsigned long hours = (seconds % 86400) / 3600;
     unsigned long minutes = (seconds % 3600) / 60;
 
-    String result = "";
     if (days > 0) {
-        result += String(days) + "d ";
+        snprintf(buffer, bufferSize, "%lud %luh %lum", days, hours, minutes);
+    } else {
+        snprintf(buffer, bufferSize, "%luh %lum", hours, minutes);
     }
-    result += String(hours) + "h " + String(minutes) + "m";
-
-    return result;
 }
 
-String OLEDManager::formatBytes(size_t bytes) {
+void OLEDManager::formatBytes(size_t bytes, char* buffer, size_t bufferSize) {
+    if (buffer == nullptr || bufferSize == 0) return;
+
     if (bytes < 1024) {
-        return String(bytes) + " B";
+        snprintf(buffer, bufferSize, "%zu B", bytes);
     } else if (bytes < 1024 * 1024) {
-        return String(bytes / 1024) + " KB";
+        snprintf(buffer, bufferSize, "%zu KB", bytes / 1024);
     } else {
-        return String(bytes / (1024 * 1024)) + " MB";
+        snprintf(buffer, bufferSize, "%zu MB", bytes / (1024 * 1024));
     }
 }

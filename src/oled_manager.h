@@ -86,7 +86,7 @@ public:
     DisplayMode getMode() const { return currentMode; }
 
     // Get last error
-    String getLastError() const { return lastError; }
+    const char* getLastError() const { return lastError; }
 
 private:
     Adafruit_SSD1306* display;  // Changed to pointer to defer initialization
@@ -94,15 +94,23 @@ private:
     OLEDConfig config;
     bool displayAvailable;
     DisplayMode currentMode;
-    String lastError;
+    char lastError[128];  // ✅ Buffer estático em vez de String dinâmica
     unsigned long lastUpdate;
     uint16_t updateInterval;
+
+    // Helper para definir erro com formatação
+    void setError(const char* format, ...) {
+        va_list args;
+        va_start(args, format);
+        vsnprintf(lastError, sizeof(lastError), format, args);
+        va_end(args);
+    }
 
     // Helper functions
     void drawCenteredText(const char* text, int16_t y, uint8_t textSize = 1);
     void drawProgressBar(int16_t x, int16_t y, int16_t width, int16_t height, uint8_t progress);
-    String formatUptime(unsigned long seconds);
-    String formatBytes(size_t bytes);
+    void formatUptime(unsigned long seconds, char* buffer, size_t bufferSize);  // ✅ Usa buffer
+    void formatBytes(size_t bytes, char* buffer, size_t bufferSize);  // ✅ Usa buffer
 };
 
 #endif // OLED_MANAGER_H

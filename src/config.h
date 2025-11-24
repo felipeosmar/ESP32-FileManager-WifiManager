@@ -6,9 +6,9 @@
 #define WIFI_PASS_DEFAULT "12345678"
 #define WIFI_AP_MODE_DEFAULT true
 
-// Web Interface Configuration
-#define WEB_USERNAME "admin"
-#define WEB_PASSWORD "admin"
+// Web Interface Configuration - MOVED TO config.json
+// Username and password hash are now stored in config.json under "web" section
+// Default: username="admin", password="admin" (SHA256 hash)
 
 // Pin Definitions
 #ifndef PIN_I2C_SDA

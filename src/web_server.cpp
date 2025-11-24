@@ -14,6 +14,14 @@ void WebServerManager::begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManag
     this->sensorManager = sensor;
     this->spiffsMutex = mutex;
 
+    // Carregar credenciais web do config.json
+    if (!loadWebCredentials()) {
+        Serial.println("AVISO: Falha ao carregar credenciais web. Usando valores padrao.");
+        webUsername = "admin";
+        webPasswordHash = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"; // SHA256("admin")
+        firstLogin = true;
+    }
+
     ws.onEvent([this](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
         onWsEvent(server, client, type, arg, data, len);
     });
@@ -25,10 +33,100 @@ void WebServerManager::begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManag
 }
 
 bool WebServerManager::checkAuth(AsyncWebServerRequest *request) {
-    if (!request->authenticate(WEB_USERNAME, WEB_PASSWORD)) {
+    Serial.println("=== checkAuth() CALLED ===");
+
+    // Extrair credenciais da requisição HTTP Basic Auth
+    if (!request->hasHeader("Authorization")) {
+        Serial.println("No Authorization header - requesting authentication");
         request->requestAuthentication();
         return false;
     }
+
+    String authHeader = request->header("Authorization");
+    if (!authHeader.startsWith("Basic ")) {
+        request->requestAuthentication();
+        return false;
+    }
+
+    // Decodificar Base64 manualmente
+    String base64Credentials = authHeader.substring(6);
+    base64Credentials.trim();
+
+    // Validar tamanho do input (segurança contra ataques)
+    // Max: username(32) + ':' + password(64) = 97 bytes → base64 ~130 bytes
+    const size_t MAX_CREDENTIALS_SIZE = 256;  // Buffer fixo seguro
+    int inputLen = base64Credentials.length();
+
+    if (inputLen > MAX_CREDENTIALS_SIZE * 4 / 3) {  // Validação antes de alocar
+        Serial.printf("Auth: Input too large (%d bytes), rejecting\n", inputLen);
+        request->requestAuthentication();
+        return false;
+    }
+
+    // Buffer FIXO (não VLA) - previne stack overflow
+    char decoded[MAX_CREDENTIALS_SIZE];
+    int decodedLen = (inputLen * 3) / 4;
+
+    if (decodedLen >= (int)MAX_CREDENTIALS_SIZE) {  // Double-check
+        request->requestAuthentication();
+        return false;
+    }
+
+    // Decodificar base64
+    const char* base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    int val = 0, valb = -8;
+    int outIdx = 0;
+
+    for (int i = 0; i < inputLen; i++) {
+        const char* p = strchr(base64Chars, base64Credentials[i]);
+        if (!p) continue;
+        val = (val << 6) + (p - base64Chars);
+        valb += 6;
+        if (valb >= 0) {
+            decoded[outIdx++] = char((val >> valb) & 0xFF);
+            valb -= 8;
+        }
+    }
+    decoded[outIdx] = '\0';
+
+    // Encontrar separador ':' diretamente em decoded
+    char* separator = strchr(decoded, ':');
+    if (separator == nullptr) {
+        request->requestAuthentication();
+        return false;
+    }
+
+    // Separar username e password
+    *separator = '\0';  // Terminar username
+    const char* username = decoded;
+    const char* password = separator + 1;
+
+    // Debug: mostrar credenciais recebidas
+    Serial.printf("Auth attempt - Username: '%s', Password: '%s'\n", username, password);
+    Serial.printf("Expected - Username: '%s', Hash: '%s'\n", webUsername.c_str(), webPasswordHash.c_str());
+
+    // Validar username e hash de senha
+    if (strcmp(username, webUsername.c_str()) != 0) {
+        Serial.printf("Auth FAILED: Username mismatch (got '%s', expected '%s')\n", username, webUsername.c_str());
+        request->requestAuthentication();
+        return false;
+    }
+
+    if (!AuthManager::verifyPassword(password, webPasswordHash.c_str())) {
+        Serial.println("Auth FAILED: Password verification failed");
+
+        // Debug: gerar hash da senha fornecida para comparar
+        char passwordHash[65];
+        if (AuthManager::hashPassword(password, passwordHash, sizeof(passwordHash))) {
+            Serial.printf("Password hash generated: '%s'\n", passwordHash);
+            Serial.printf("Expected hash:          '%s'\n", webPasswordHash.c_str());
+        }
+
+        request->requestAuthentication();
+        return false;
+    }
+
+    Serial.println("Auth SUCCESS!");
     return true;
 }
 
@@ -64,6 +162,157 @@ void WebServerManager::validateOTABoot() {
     #endif
 }
 
+bool WebServerManager::loadWebCredentials() {
+    if (!spiffsManager->isReady()) {
+        Serial.println("SPIFFS não disponível para carregar credenciais web");
+        return false;
+    }
+
+    File file = LittleFS.open("/config.json", FILE_READ);
+    if (!file) {
+        Serial.println("Falha ao abrir config.json para ler credenciais web");
+        return false;
+    }
+
+    StaticJsonDocument<1536> doc;  // Config: wifi + mqtt + oled + sensor + web
+    DeserializationError error = deserializeJson(doc, file);
+    file.close();
+
+    if (error) {
+        Serial.print("Falha ao parsear config.json: ");
+        Serial.println(error.c_str());
+        return false;
+    }
+
+    // Carregar credenciais web
+    if (doc.containsKey("web")) {
+        webUsername = doc["web"]["username"].as<String>();
+        webPasswordHash = doc["web"]["password_hash"].as<String>();
+        firstLogin = doc["web"]["first_login"] | true; // Default true
+
+        Serial.println("==============================================");
+        Serial.println("Credenciais web carregadas do config.json");
+        Serial.print("Username: ");
+        Serial.println(webUsername);
+        Serial.print("Password Hash: ");
+        Serial.println(webPasswordHash);
+        Serial.print("Primeiro login: ");
+        Serial.println(firstLogin ? "SIM" : "NAO");
+        Serial.println("==============================================");
+        return true;
+    }
+
+    Serial.println("ERRO: Seção 'web' não encontrada no config.json");
+    return false;
+}
+
+bool WebServerManager::saveWebCredentials(const String& username, const String& passwordHash, bool firstLoginFlag) {
+    if (!spiffsManager->isReady()) {
+        Serial.println("SPIFFS não disponível para salvar credenciais web");
+        return false;
+    }
+
+    // Ler config atual
+    File file = LittleFS.open("/config.json", FILE_READ);
+    if (!file) {
+        Serial.println("Falha ao abrir config.json para atualizar credenciais");
+        return false;
+    }
+
+    StaticJsonDocument<1536> doc;  // Config: wifi + mqtt + oled + sensor + web
+    DeserializationError error = deserializeJson(doc, file);
+    file.close();
+
+    if (error) {
+        Serial.print("Falha ao parsear config.json: ");
+        Serial.println(error.c_str());
+        return false;
+    }
+
+    // Atualizar seção web
+    doc["web"]["username"] = username;
+    doc["web"]["password_hash"] = passwordHash;
+    doc["web"]["first_login"] = firstLoginFlag;
+
+    // Salvar de volta
+    file = LittleFS.open("/config.json", FILE_WRITE);
+    if (!file) {
+        Serial.println("Falha ao abrir config.json para escrita");
+        return false;
+    }
+
+    if (serializeJson(doc, file) == 0) {
+        Serial.println("Falha ao escrever config.json");
+        file.close();
+        return false;
+    }
+
+    file.close();
+
+    // Atualizar variáveis em memória
+    webUsername = username;
+    webPasswordHash = passwordHash;
+    firstLogin = firstLoginFlag;
+
+    Serial.println("Credenciais web salvas com sucesso");
+    return true;
+}
+
+bool WebServerManager::isValidPath(const String& path) {
+    // Verificar se o path está vazio
+    if (path.length() == 0) {
+        Serial.println("Path Traversal bloqueado: path vazio");
+        return false;
+    }
+
+    // Verificar se contém sequências de path traversal
+    if (path.indexOf("..") >= 0) {
+        Serial.print("Path Traversal bloqueado: '..' detectado em: ");
+        Serial.println(path);
+        return false;
+    }
+
+    // Verificar se contém caracteres nulos (null byte injection)
+    if (path.indexOf('\0') >= 0) {
+        Serial.println("Path Traversal bloqueado: null byte detectado");
+        return false;
+    }
+
+    // Verificar se começa com /
+    if (!path.startsWith("/")) {
+        Serial.print("Path Traversal bloqueado: path não começa com '/': ");
+        Serial.println(path);
+        return false;
+    }
+
+    // Verificar se contém barras invertidas (Windows-style paths)
+    if (path.indexOf('\\') >= 0) {
+        Serial.println("Path Traversal bloqueado: barra invertida detectada");
+        return false;
+    }
+
+    // Limitar tamanho do path (prevenir buffer overflow)
+    if (path.length() > 128) {
+        Serial.println("Path Traversal bloqueado: path muito longo");
+        return false;
+    }
+
+    // Validar caracteres permitidos (alphanumerico, /, -, _, .)
+    for (size_t i = 0; i < path.length(); i++) {
+        char c = path.charAt(i);
+        if (!isalnum(c) && c != '/' && c != '-' && c != '_' && c != '.') {
+            Serial.print("Path Traversal bloqueado: caractere invalido '");
+            Serial.print(c);
+            Serial.print("' em: ");
+            Serial.println(path);
+            return false;
+        }
+    }
+
+    // Path válido
+    return true;
+}
+
 void WebServerManager::serveStaticFile(AsyncWebServerRequest *request, const char* filepath, const char* contentType) {
     if (!checkAuth(request)) return;
 
@@ -72,6 +321,29 @@ void WebServerManager::serveStaticFile(AsyncWebServerRequest *request, const cha
         return;
     }
 
+    // Try to serve gzipped version if available and client supports it
+    bool clientAcceptsGzip = false;
+    if (request->hasHeader("Accept-Encoding")) {
+        String encoding = request->header("Accept-Encoding");
+        clientAcceptsGzip = (encoding.indexOf("gzip") != -1);
+    }
+
+    // Build .gz filename
+    char gzFilepath[128];
+    snprintf(gzFilepath, sizeof(gzFilepath), "%s.gz", filepath);
+
+    // Serve .gz if available and client supports it
+    if (clientAcceptsGzip && LittleFS.exists(gzFilepath)) {
+        AsyncWebServerResponse *response = request->beginResponse(LittleFS, gzFilepath, contentType);
+        if (response) {
+            response->addHeader("Content-Encoding", "gzip");
+            response->addHeader("Cache-Control", "public, max-age=3600");
+            request->send(response);
+            return;
+        }
+    }
+
+    // Fallback to uncompressed file
     if (!LittleFS.exists(filepath)) {
         request->send(404, "text/plain", "File not found");
         return;
@@ -80,9 +352,6 @@ void WebServerManager::serveStaticFile(AsyncWebServerRequest *request, const cha
     AsyncWebServerResponse *response = request->beginResponse(LittleFS, filepath, contentType);
     if (response) {
         response->addHeader("Cache-Control", "public, max-age=3600");
-        // GZIP compression if supported by client and file (AsyncWebServer handles this automatically if file has .gz extension, 
-        // but here we are serving specific files. We can enable it globally or per response)
-        // For now, we rely on standard serving.
         request->send(response);
     } else {
         request->send(500, "text/plain", "Failed to serve file");
@@ -180,6 +449,16 @@ void WebServerManager::setupRoutes() {
         serveStaticFile(request, "/web/sensor.js", "application/javascript");
     });
 
+    server.on("/auth", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        if (!checkAuth(request)) return;
+        validateOTABoot();
+        if (spiffsManager->isReady()) request->send(LittleFS, "/web/auth.html", "text/html");
+        else request->send(503, "text/plain", "SPIFFS not ready");
+    });
+    server.on("/auth.js", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        serveStaticFile(request, "/web/auth.js", "application/javascript");
+    });
+
     // API Endpoints
     server.on("/api/status", HTTP_GET, [this](AsyncWebServerRequest *request) { handleStatus(request); });
     
@@ -244,12 +523,19 @@ void WebServerManager::setupRoutes() {
         }
     );
 
-    server.on("/api/firmware/upload", HTTP_POST, 
+    // Authentication endpoints
+    server.on("/api/auth/status", HTTP_GET, [this](AsyncWebServerRequest *request) { handleAuthStatus(request); });
+    server.on("/api/auth/change-password", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+        [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+            handleChangePassword(request, data, len, index, total);
+        }
+    );
+
+    server.on("/api/firmware/upload", HTTP_POST,
         [this](AsyncWebServerRequest *request) {
              if (otaUploadInProgress) {
-                xSemaphoreGive(*spiffsMutex);
                 otaUploadInProgress = false;
-                Serial.println("OTA upload finished - SPIFFS mutex released");
+                Serial.println("OTA upload finished - MutexGuard will auto-release mutex");
             }
             if (otaUploadError.length() > 0) {
                 request->send(500, "application/json", "{\"error\":\"" + otaUploadError + "\"}");
@@ -288,7 +574,7 @@ void WebServerManager::handleRoot(AsyncWebServerRequest *request) {
 
 void WebServerManager::handleStatus(AsyncWebServerRequest *request) {
     if (!checkAuth(request)) return;
-    JsonDocument doc;
+    StaticJsonDocument<1024> doc;  // System status response
     
     // System uptime
     unsigned long uptimeMs = millis();
@@ -413,6 +699,12 @@ void WebServerManager::handleFileList(AsyncWebServerRequest *request) {
     String path = "/";
     if (request->hasParam("dir")) {
       path = request->getParam("dir")->value();
+
+      // Validação de Path Traversal
+      if (!isValidPath(path)) {
+          request->send(400, "application/json", "{\"error\":\"Invalid directory path\"}");
+          return;
+      }
     }
 
     File root = LittleFS.open(path);
@@ -421,7 +713,7 @@ void WebServerManager::handleFileList(AsyncWebServerRequest *request) {
       return;
     }
 
-    JsonDocument doc;
+    StaticJsonDocument<1024> doc;  // File list response
     JsonArray files = doc["files"].to<JsonArray>();
 
     File file = root.openNextFile();
@@ -445,6 +737,13 @@ void WebServerManager::handleFileDownload(AsyncWebServerRequest *request) {
     if (!request->hasParam("file")) { request->send(400, "text/plain", "Missing file parameter"); return; }
 
     String filepath = request->getParam("file")->value();
+
+    // Validação de Path Traversal
+    if (!isValidPath(filepath)) {
+        request->send(400, "text/plain", "Invalid file path");
+        return;
+    }
+
     if (!LittleFS.exists(filepath)) { request->send(404, "text/plain", "File not found"); return; }
 
     request->send(LittleFS, filepath, String(), true);
@@ -456,6 +755,13 @@ void WebServerManager::handleFileView(AsyncWebServerRequest *request) {
     if (!request->hasParam("file")) { request->send(400, "text/plain", "Missing file parameter"); return; }
 
     String filepath = request->getParam("file")->value();
+
+    // Validação de Path Traversal
+    if (!isValidPath(filepath)) {
+        request->send(400, "text/plain", "Invalid file path");
+        return;
+    }
+
     if (!LittleFS.exists(filepath)) { request->send(404, "text/plain", "File not found"); return; }
 
     request->send(LittleFS, filepath, "text/plain", false);
@@ -467,67 +773,77 @@ void WebServerManager::handleFileRead(AsyncWebServerRequest *request) {
     if (!request->hasParam("file")) { request->send(400, "application/json", "{\"error\":\"Missing file parameter\"}"); return; }
 
     String filepath = request->getParam("file")->value();
+
+    // Validação de Path Traversal
+    if (!isValidPath(filepath)) {
+        request->send(400, "application/json", "{\"error\":\"Invalid file path\"}");
+        return;
+    }
+
     if (!LittleFS.exists(filepath)) { request->send(404, "application/json", "{\"error\":\"File not found\"}"); return; }
 
-    if (xSemaphoreTake(*spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-      File file = LittleFS.open(filepath, FILE_READ);
-      if (!file) {
-        xSemaphoreGive(*spiffsMutex);
+    // Use MutexGuard for automatic mutex management
+    MutexGuard guard(*spiffsMutex, 5000, "fileRead");
+    if (!guard.acquired()) {
+        request->send(503, "application/json", "{\"error\":\"SPIFFS busy\"}");
+        return;
+    }
+
+    File file = LittleFS.open(filepath, FILE_READ);
+    if (!file) {
         request->send(500, "application/json", "{\"error\":\"Failed to open file\"}");
         return;
-      }
+        // Mutex automatically released by MutexGuard destructor
+    }
 
-      size_t fileSize = file.size();
-      if (fileSize > 51200) {
+    size_t fileSize = file.size();
+    if (fileSize > 51200) {
         file.close();
-        xSemaphoreGive(*spiffsMutex);
         request->send(413, "application/json", "{\"error\":\"File too large (max 50KB)\"}");
         return;
-      }
+        // Mutex automatically released by MutexGuard destructor
+    }
 
-      // Check if we have enough heap memory before allocating
-      // Need: buffer + String overhead + JsonDocument + response String
-      size_t requiredHeap = (fileSize * 3) + 2048; // Conservative estimate
-      if (ESP.getFreeHeap() < requiredHeap) {
+    // Check if we have enough heap memory before allocating
+    // Need: buffer + String overhead + JsonDocument + response String
+    size_t requiredHeap = (fileSize * 3) + 2048; // Conservative estimate
+    if (ESP.getFreeHeap() < requiredHeap) {
         file.close();
-        xSemaphoreGive(*spiffsMutex);
         Serial.printf("ERROR: Insufficient heap for file read. Need: %u, Available: %u\n",
                       requiredHeap, ESP.getFreeHeap());
         request->send(503, "application/json", "{\"error\":\"Insufficient memory\"}");
         return;
-      }
+        // Mutex automatically released by MutexGuard destructor
+    }
 
-      // Allocate buffer and read file in one operation (prevents fragmentation)
-      char* buffer = (char*)malloc(fileSize + 1);
-      if (!buffer) {
+    // Allocate buffer and read file in one operation (prevents fragmentation)
+    char* buffer = (char*)malloc(fileSize + 1);
+    if (!buffer) {
         file.close();
-        xSemaphoreGive(*spiffsMutex);
         Serial.println("ERROR: Failed to allocate buffer for file read");
         request->send(500, "application/json", "{\"error\":\"Memory allocation failed\"}");
         return;
-      }
-
-      // Read entire file at once
-      size_t bytesRead = file.readBytes(buffer, fileSize);
-      buffer[bytesRead] = '\0';
-
-      String content = String(buffer);
-      free(buffer); // Free buffer immediately after use
-
-      file.close();
-      xSemaphoreGive(*spiffsMutex);
-
-      JsonDocument doc;
-      doc["status"] = "ok";
-      doc["content"] = content;
-      doc["size"] = fileSize;
-
-      String response;
-      serializeJson(doc, response);
-      request->send(200, "application/json", response);
-    } else {
-      request->send(503, "application/json", "{\"error\":\"SPIFFS busy\"}");
+        // Mutex automatically released by MutexGuard destructor
     }
+
+    // Read entire file at once
+    size_t bytesRead = file.readBytes(buffer, fileSize);
+    buffer[bytesRead] = '\0';
+
+    String content = String(buffer);
+    free(buffer); // Free buffer immediately after use
+
+    file.close();
+    // Mutex automatically released by MutexGuard destructor when function returns
+
+    StaticJsonDocument<256> doc;  // File read response
+    doc["status"] = "ok";
+    doc["content"] = content;
+    doc["size"] = fileSize;
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
 }
 
 void WebServerManager::handleFileWrite(AsyncWebServerRequest *request) {
@@ -541,25 +857,34 @@ void WebServerManager::handleFileWrite(AsyncWebServerRequest *request) {
     String filepath = request->getParam("file", true)->value();
     String content = request->getParam("content", true)->value();
 
-    if (xSemaphoreTake(*spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-      File file = LittleFS.open(filepath, FILE_WRITE);
-      if (!file) {
-        xSemaphoreGive(*spiffsMutex);
+    // Validação de Path Traversal
+    if (!isValidPath(filepath)) {
+        request->send(400, "application/json", "{\"error\":\"Invalid file path\"}");
+        return;
+    }
+
+    // Use MutexGuard for automatic mutex management
+    MutexGuard guard(*spiffsMutex, 5000, "fileWrite");
+    if (!guard.acquired()) {
+        request->send(503, "application/json", "{\"error\":\"SPIFFS busy\"}");
+        return;
+    }
+
+    File file = LittleFS.open(filepath, FILE_WRITE);
+    if (!file) {
         request->send(500, "application/json", "{\"error\":\"Failed to open file\"}");
         return;
-      }
+        // Mutex automatically released
+    }
 
-      size_t written = file.print(content);
-      file.close();
-      xSemaphoreGive(*spiffsMutex);
+    size_t written = file.print(content);
+    file.close();
+    // Mutex automatically released
 
-      if (written > 0) {
+    if (written > 0) {
         request->send(200, "application/json", "{\"status\":\"ok\"}");
-      } else {
-        request->send(500, "application/json", "{\"error\":\"Failed to write\"}");
-      }
     } else {
-      request->send(503, "application/json", "{\"error\":\"SPIFFS busy\"}");
+        request->send(500, "application/json", "{\"error\":\"Failed to write\"}");
     }
 }
 
@@ -569,6 +894,13 @@ void WebServerManager::handleFileDelete(AsyncWebServerRequest *request) {
     if (!request->hasParam("file", true)) { request->send(400, "application/json", "{\"error\":\"Missing file parameter\"}"); return; }
 
     String filepath = request->getParam("file", true)->value();
+
+    // Validação de Path Traversal
+    if (!isValidPath(filepath)) {
+        request->send(400, "application/json", "{\"error\":\"Invalid file path\"}");
+        return;
+    }
+
     File file = LittleFS.open(filepath);
     if (!file) { request->send(404, "application/json", "{\"error\":\"File not found\"}"); return; }
 
@@ -586,6 +918,13 @@ void WebServerManager::handleFileCreateDir(AsyncWebServerRequest *request) {
     if (!request->hasParam("dir", true)) { request->send(400, "application/json", "{\"error\":\"Missing dir parameter\"}"); return; }
 
     String dirpath = request->getParam("dir", true)->value();
+
+    // Validação de Path Traversal
+    if (!isValidPath(dirpath)) {
+        request->send(400, "application/json", "{\"error\":\"Invalid directory path\"}");
+        return;
+    }
+
     if (LittleFS.mkdir(dirpath)) request->send(200, "application/json", "{\"status\":\"ok\"}");
     else request->send(500, "application/json", "{\"error\":\"Failed to create directory\"}");
 }
@@ -599,9 +938,24 @@ void WebServerManager::handleFileUpload(AsyncWebServerRequest *request, String f
         String path = "/";
         if (request->hasParam("dir", false)) {
           path = request->getParam("dir", false)->value();
+
+          // Validação de Path Traversal no diretório
+          if (!isValidPath(path)) {
+              Serial.println("Path Traversal bloqueado em upload: path inválido");
+              return;
+          }
+
           if (path != "/" && !path.endsWith("/")) path += "/";
         }
+
         String filepath = path + filename;
+
+        // Validação de Path Traversal no filepath completo
+        if (!isValidPath(filepath)) {
+            Serial.println("Path Traversal bloqueado em upload: filepath inválido");
+            return;
+        }
+
         if (LittleFS.exists(filepath)) LittleFS.remove(filepath);
         uploadFile = LittleFS.open(filepath, FILE_WRITE);
     }
@@ -612,7 +966,7 @@ void WebServerManager::handleFileUpload(AsyncWebServerRequest *request, String f
 
 void WebServerManager::handleWiFiScan(AsyncWebServerRequest *request) {
     if (!checkAuth(request)) return;
-    JsonDocument doc;
+    StaticJsonDocument<1024> doc;  // WiFi scan list
     int n = WiFi.scanNetworks();
     JsonArray networks = doc["networks"].to<JsonArray>();
     for (int i = 0; i < n; i++) {
@@ -631,42 +985,44 @@ void WebServerManager::handleWiFiScan(AsyncWebServerRequest *request) {
 void WebServerManager::handleWiFiConnect(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
     if (!checkAuth(request)) return;
     if (index == 0) {
-        JsonDocument doc;
+        StaticJsonDocument<256> doc;  // WiFi connect response
         if (deserializeJson(doc, data, len)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
 
         const char* ssid = doc["ssid"];
         const char* password = doc["password"];
 
-        if (xSemaphoreTake(*spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-            File configFile = LittleFS.open("/config.json", "r");
-            JsonDocument configDoc;
-            if (configFile) { deserializeJson(configDoc, configFile); configFile.close(); }
-            
-            configDoc["wifi"]["ssid"] = ssid;
-            configDoc["wifi"]["password"] = password ? password : "";
-            configDoc["wifi"]["ap_mode"] = false;
-
-            configFile = LittleFS.open("/config.json", "w");
-            if (configFile) {
-                serializeJson(configDoc, configFile);
-                configFile.close();
-                request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved. Rebooting...\"}");
-                xSemaphoreGive(*spiffsMutex);
-                delay(2000);
-                ESP.restart();
-            } else {
-                xSemaphoreGive(*spiffsMutex);
-                request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
-            }
-        } else {
+        MutexGuard guard(*spiffsMutex, 5000, "wifiConnect");
+        if (!guard.acquired()) {
             request->send(503, "application/json", "{\"error\":\"System busy\"}");
+            return;
         }
+
+        File configFile = LittleFS.open("/config.json", "r");
+        StaticJsonDocument<1536> configDoc;  // Full config read
+        if (configFile) { deserializeJson(configDoc, configFile); configFile.close(); }
+
+        configDoc["wifi"]["ssid"] = ssid;
+        configDoc["wifi"]["password"] = password ? password : "";
+        configDoc["wifi"]["ap_mode"] = false;
+
+        configFile = LittleFS.open("/config.json", "w");
+        if (!configFile) {
+            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
+            return;
+        }
+
+        serializeJson(configDoc, configFile);
+        configFile.close();
+        request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved. Rebooting...\"}");
+        // Mutex will be automatically released by destructor before ESP.restart()
+        delay(2000);
+        ESP.restart();
     }
 }
 
 void WebServerManager::handleMQTTStatus(AsyncWebServerRequest *request) {
     if (!checkAuth(request)) return;
-    JsonDocument doc;
+    StaticJsonDocument<512> doc;  // MQTT status
     const MQTTManager::MQTTConfig& config = mqttManager->getConfig();
     doc["enabled"] = config.enabled;
     doc["connected"] = mqttManager->isConnected();
@@ -685,7 +1041,7 @@ void WebServerManager::handleMQTTStatus(AsyncWebServerRequest *request) {
 
 void WebServerManager::handleMQTTConfigGet(AsyncWebServerRequest *request) {
     if (!checkAuth(request)) return;
-    JsonDocument doc;
+    StaticJsonDocument<512> doc;  // MQTT config get
     const MQTTManager::MQTTConfig& config = mqttManager->getConfig();
     doc["enabled"] = config.enabled;
     doc["server"] = config.server;
@@ -704,37 +1060,39 @@ void WebServerManager::handleMQTTConfigGet(AsyncWebServerRequest *request) {
 void WebServerManager::handleMQTTConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
     if (!checkAuth(request)) return;
     if (index == 0) {
-        JsonDocument doc;
+        StaticJsonDocument<256> doc;  // MQTT config POST response
         if (deserializeJson(doc, data, len)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
 
         mqttManager->updateConfig(doc["server"] | "", doc["port"] | 1883, doc["username"] | "", doc["password"] | "", doc["hostname"] | "ESP32-Device", doc["main_topic"] | "esp32/data", doc["publish_interval"] | 60, doc["enabled"] | false);
 
-        if (xSemaphoreTake(*spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-            File configFile = LittleFS.open("/config.json", "r");
-            JsonDocument configDoc;
-            if (configFile) { deserializeJson(configDoc, configFile); configFile.close(); }
-            
-            mqttManager->saveConfig(configDoc);
-            
-            configFile = LittleFS.open("/config.json", "w");
-            if (configFile) {
-                serializeJson(configDoc, configFile);
-                configFile.close();
-                request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
-            } else {
-                request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
-            }
-            xSemaphoreGive(*spiffsMutex);
-        } else {
+        MutexGuard guard(*spiffsMutex, 5000, "mqttConfigSave");
+        if (!guard.acquired()) {
             request->send(503, "application/json", "{\"error\":\"System busy\"}");
+            return;
         }
+
+        File configFile = LittleFS.open("/config.json", "r");
+        StaticJsonDocument<1536> configDoc;  // Full config read
+        if (configFile) { deserializeJson(configDoc, configFile); configFile.close(); }
+
+        mqttManager->saveConfig(configDoc);
+
+        configFile = LittleFS.open("/config.json", "w");
+        if (!configFile) {
+            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
+            return;
+        }
+
+        serializeJson(configDoc, configFile);
+        configFile.close();
+        request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
     }
 }
 
 void WebServerManager::handleMQTTTest(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
     if (!checkAuth(request)) return;
     if (index == 0) {
-        JsonDocument doc;
+        StaticJsonDocument<256> doc;  // MQTT test response
         if (deserializeJson(doc, data, len)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
 
         const char* server = doc["server"];
@@ -762,7 +1120,7 @@ void WebServerManager::handleMQTTTest(AsyncWebServerRequest *request, uint8_t *d
 void WebServerManager::handleMQTTPublish(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
     if (!checkAuth(request)) return;
     if (index == 0) {
-        JsonDocument doc;
+        StaticJsonDocument<256> doc;  // MQTT publish response
         if (deserializeJson(doc, data, len)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
 
         const char* topic = doc["topic"];
@@ -783,7 +1141,7 @@ void WebServerManager::handleMQTTPublish(AsyncWebServerRequest *request, uint8_t
 
 void WebServerManager::handleDisplayStatus(AsyncWebServerRequest *request) {
     if (!checkAuth(request)) return;
-    JsonDocument doc;
+    StaticJsonDocument<512> doc;  // Display status
     const OLEDManager::OLEDConfig& config = oledManager->getConfig();
     doc["enabled"] = config.enabled;
     doc["available"] = oledManager->isAvailable();
@@ -799,7 +1157,7 @@ void WebServerManager::handleDisplayStatus(AsyncWebServerRequest *request) {
 
 void WebServerManager::handleDisplayConfigGet(AsyncWebServerRequest *request) {
     if (!checkAuth(request)) return;
-    JsonDocument doc;
+    StaticJsonDocument<512> doc;  // Display config get
     const OLEDManager::OLEDConfig& config = oledManager->getConfig();
     doc["enabled"] = config.enabled;
     doc["address"] = config.address;
@@ -816,37 +1174,39 @@ void WebServerManager::handleDisplayConfigGet(AsyncWebServerRequest *request) {
 void WebServerManager::handleDisplayConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
     if (!checkAuth(request)) return;
     if (index == 0) {
-        JsonDocument doc;
+        StaticJsonDocument<256> doc;  // Display config POST response
         if (deserializeJson(doc, data, len)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
 
         oledManager->updateConfig(doc["enabled"]|false, doc["address"]|0x3C, doc["sda_pin"]|21, doc["scl_pin"]|22, doc["rst_pin"]|-1, doc["auto_update"]|true, doc["brightness"]|128, doc["flip_display"]|false);
 
-        if (xSemaphoreTake(*spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-            File configFile = LittleFS.open("/config.json", "r");
-            JsonDocument configDoc;
-            if (configFile) { deserializeJson(configDoc, configFile); configFile.close(); }
-            
-            oledManager->saveConfig(configDoc);
-            
-            configFile = LittleFS.open("/config.json", "w");
-            if (configFile) {
-                serializeJson(configDoc, configFile);
-                configFile.close();
-                request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
-            } else {
-                request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
-            }
-            xSemaphoreGive(*spiffsMutex);
-        } else {
+        MutexGuard guard(*spiffsMutex, 5000, "displayConfigSave");
+        if (!guard.acquired()) {
             request->send(503, "application/json", "{\"error\":\"System busy\"}");
+            return;
         }
+
+        File configFile = LittleFS.open("/config.json", "r");
+        StaticJsonDocument<1536> configDoc;  // Full config read
+        if (configFile) { deserializeJson(configDoc, configFile); configFile.close(); }
+
+        oledManager->saveConfig(configDoc);
+
+        configFile = LittleFS.open("/config.json", "w");
+        if (!configFile) {
+            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
+            return;
+        }
+
+        serializeJson(configDoc, configFile);
+        configFile.close();
+        request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
     }
 }
 
 void WebServerManager::handleDisplayMode(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
     if (!checkAuth(request)) return;
     if (index == 0) {
-        JsonDocument doc;
+        StaticJsonDocument<256> doc;  // Display mode response
         if (deserializeJson(doc, data, len)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
         if (!oledManager->isAvailable()) { request->send(503, "application/json", "{\"error\":\"Display not available\"}"); return; }
 
@@ -867,14 +1227,16 @@ void WebServerManager::handleDisplayMode(AsyncWebServerRequest *request, uint8_t
 
 void WebServerManager::handleSensorStatus(AsyncWebServerRequest *request) {
     if (!checkAuth(request)) return;
-    JsonDocument doc;
+    StaticJsonDocument<512> doc;  // Sensor status
     const SensorManager::SensorConfig& cfg = sensorManager->getConfig();
     const SensorData& data = sensorManager->getData();
     doc["enabled"] = cfg.enabled;
     doc["available"] = sensorManager->isAvailable();
     doc["valid"] = data.valid;
     doc["sensor_type"] = sensorTypeToString(sensorManager->getDetectedSensorType());
-    doc["sensor_name"] = sensorManager->getDetectedSensorName();
+    char sensorName[32];
+    sensorManager->getDetectedSensorName(sensorName, sizeof(sensorName));
+    doc["sensor_name"] = sensorName;
     if (data.valid) {
         doc["temperature"] = sensorManager->getTemperature();
         doc["temperature_f"] = sensorManager->getTemperatureFahrenheit();
@@ -890,13 +1252,15 @@ void WebServerManager::handleSensorStatus(AsyncWebServerRequest *request) {
 
 void WebServerManager::handleSensorConfigGet(AsyncWebServerRequest *request) {
     if (!checkAuth(request)) return;
-    JsonDocument doc;
+    StaticJsonDocument<512> doc;  // Sensor config get
     const SensorManager::SensorConfig& cfg = sensorManager->getConfig();
     doc["enabled"] = cfg.enabled;
     doc["read_interval"] = cfg.read_interval;
     doc["fahrenheit"] = cfg.fahrenheit;
     doc["sensor_type"] = sensorTypeToString(cfg.sensorType);
-    doc["detected_sensor"] = sensorManager->getDetectedSensorName();
+    char detectedSensor[32];
+    sensorManager->getDetectedSensorName(detectedSensor, sizeof(detectedSensor));
+    doc["detected_sensor"] = detectedSensor;
     if (cfg.customAddress > 0) {
         doc["custom_address"] = cfg.customAddress;
     }
@@ -908,7 +1272,7 @@ void WebServerManager::handleSensorConfigGet(AsyncWebServerRequest *request) {
 void WebServerManager::handleSensorConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
     if (!checkAuth(request)) return;
     if (index == 0) {
-        JsonDocument doc;
+        StaticJsonDocument<256> doc;  // Sensor config POST response
         if (deserializeJson(doc, data, len)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
 
         // Parse sensor type if provided
@@ -919,52 +1283,157 @@ void WebServerManager::handleSensorConfigPost(AsyncWebServerRequest *request, ui
 
         sensorManager->updateConfig(doc["enabled"]|false, doc["read_interval"]|60, doc["fahrenheit"]|false, sensorType);
 
-        if (xSemaphoreTake(*spiffsMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-            File configFile = LittleFS.open("/config.json", "r");
-            JsonDocument configDoc;
-            if (configFile) { deserializeJson(configDoc, configFile); configFile.close(); }
-
-            sensorManager->saveConfig(configDoc);
-            
-            configFile = LittleFS.open("/config.json", "w");
-            if (configFile) {
-                serializeJson(configDoc, configFile);
-                configFile.close();
-                request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
-            } else {
-                request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
-            }
-            xSemaphoreGive(*spiffsMutex);
-        } else {
+        MutexGuard guard(*spiffsMutex, 5000, "sensorConfigSave");
+        if (!guard.acquired()) {
             request->send(503, "application/json", "{\"error\":\"System busy\"}");
+            return;
+        }
+
+        File configFile = LittleFS.open("/config.json", "r");
+        StaticJsonDocument<1536> configDoc;  // Full config read
+        if (configFile) { deserializeJson(configDoc, configFile); configFile.close(); }
+
+        sensorManager->saveConfig(configDoc);
+
+        configFile = LittleFS.open("/config.json", "w");
+        if (!configFile) {
+            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
+            return;
+        }
+
+        serializeJson(configDoc, configFile);
+        configFile.close();
+        request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
+    }
+}
+
+void WebServerManager::handleAuthStatus(AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
+
+    StaticJsonDocument<512> doc;  // Auth status
+    doc["username"] = webUsername;
+    doc["first_login"] = firstLogin;
+    doc["password_change_required"] = firstLogin;
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+}
+
+void WebServerManager::handleChangePassword(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    if (!checkAuth(request)) return;
+
+    if (index == 0) {
+        StaticJsonDocument<256> doc;  // Change password request
+        DeserializationError error = deserializeJson(doc, data, len);
+
+        if (error) {
+            request->send(400, "application/json", "{\"error\":\"JSON invalido\"}");
+            return;
+        }
+
+        // Extrair dados
+        const char* currentPassword = doc["current_password"] | "";
+        const char* newPassword = doc["new_password"] | "";
+        String newUsername = doc["username"] | webUsername; // Se não fornecido, manter atual
+
+        // Validar senha atual
+        if (!AuthManager::verifyPassword(currentPassword, webPasswordHash.c_str())) {
+            request->send(401, "application/json", "{\"error\":\"Senha atual incorreta\"}");
+            return;
+        }
+
+        // Validar força da nova senha
+        char validationError[128];
+        if (!AuthManager::getPasswordValidationError(newPassword, validationError, sizeof(validationError))) {
+            // Senha inválida - validationError contém a mensagem
+            StaticJsonDocument<256> errorDoc;  // Error response
+            errorDoc["error"] = validationError;
+            String errorResponse;
+            serializeJson(errorDoc, errorResponse);
+            request->send(400, "application/json", errorResponse);
+            return;
+        }
+
+        // Gerar hash da nova senha
+        char newPasswordHash[65];
+        if (!AuthManager::hashPassword(newPassword, newPasswordHash, sizeof(newPasswordHash))) {
+            request->send(500, "application/json", "{\"error\":\"Falha ao gerar hash de senha\"}");
+            return;
+        }
+
+        // Salvar credenciais
+        String newPasswordHashStr(newPasswordHash);  // Converter para String para saveWebCredentials
+        if (saveWebCredentials(newUsername, newPasswordHashStr, false)) {
+            StaticJsonDocument<256> successDoc;  // Success response
+            successDoc["status"] = "ok";
+            successDoc["message"] = "Senha alterada com sucesso";
+            successDoc["username"] = webUsername;
+            successDoc["first_login"] = false;
+            String successResponse;
+            serializeJson(successDoc, successResponse);
+            request->send(200, "application/json", successResponse);
+
+            Serial.println("Senha alterada com sucesso");
+            Serial.print("Novo username: ");
+            Serial.println(webUsername);
+        } else {
+            request->send(500, "application/json", "{\"error\":\"Falha ao salvar credenciais\"}");
         }
     }
 }
 
 void WebServerManager::handleOTA(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
     if (!checkAuth(request)) return;
+
+    // Static guards - created on first chunk, destroyed when upload ends
+    static WatchdogGuard* watchdogGuard = nullptr;
+    static MutexGuard* mutexGuard = nullptr;
+
     if (index == 0) {
         otaUploadError = "";
-        esp_task_wdt_delete(xTaskGetIdleTaskHandleForCPU(0));
-        esp_task_wdt_delete(xTaskGetIdleTaskHandleForCPU(1));
 
-        if (xSemaphoreTake(*spiffsMutex, pdMS_TO_TICKS(10000)) != pdTRUE) {
+        // Create WatchdogGuard to disable watchdog during OTA
+        if (watchdogGuard == nullptr) {
+            watchdogGuard = new WatchdogGuard();
+        }
+
+        // Create MutexGuard to hold SPIFFS mutex during entire OTA upload
+        if (mutexGuard == nullptr) {
+            mutexGuard = new MutexGuard(*spiffsMutex, 10000, "otaUpload");
+        }
+
+        if (!mutexGuard->acquired()) {
             otaUploadError = "SPIFFS is busy";
+            // Clean up guards on error
+            delete watchdogGuard;
+            watchdogGuard = nullptr;
+            delete mutexGuard;
+            mutexGuard = nullptr;
             return;
         }
+
         otaUploadInProgress = true;
 
         if (!isValidESP32Firmware(data, len)) {
             otaUploadError = "Invalid ESP32 firmware file";
-            xSemaphoreGive(*spiffsMutex);
             otaUploadInProgress = false;
+            // Clean up guards on error
+            delete watchdogGuard;
+            watchdogGuard = nullptr;
+            delete mutexGuard;
+            mutexGuard = nullptr;
             return;
         }
 
         if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
             otaUploadError = "Failed to begin OTA update: " + String(Update.errorString());
-            xSemaphoreGive(*spiffsMutex);
             otaUploadInProgress = false;
+            // Clean up guards on error
+            delete watchdogGuard;
+            watchdogGuard = nullptr;
+            delete mutexGuard;
+            mutexGuard = nullptr;
             return;
         }
     }
@@ -974,6 +1443,7 @@ void WebServerManager::handleOTA(AsyncWebServerRequest *request, String filename
         if (Update.write(data, len) != len) {
             otaUploadError = "Failed to write firmware data";
             Update.abort();
+            // Note: Don't delete guards here - wait for final chunk
         }
         yield();
     }
@@ -981,6 +1451,21 @@ void WebServerManager::handleOTA(AsyncWebServerRequest *request, String filename
     if (final) {
         if (!Update.end(true)) {
             otaUploadError = "Failed to finalize OTA update: " + String(Update.errorString());
+        }
+
+        // Always clean up guards when upload ends (success or failure)
+        // WatchdogGuard destructor will re-enable the watchdog
+        // MutexGuard destructor will release the mutex
+        if (watchdogGuard != nullptr) {
+            delete watchdogGuard;
+            watchdogGuard = nullptr;
+            Serial.println("OTA upload completed - WatchdogGuard destroyed");
+        }
+
+        if (mutexGuard != nullptr) {
+            delete mutexGuard;
+            mutexGuard = nullptr;
+            Serial.println("OTA upload completed - MutexGuard destroyed");
         }
     }
 }
