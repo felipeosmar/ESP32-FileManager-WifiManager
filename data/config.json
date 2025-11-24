@@ -41,5 +41,32 @@
     "offset": -10800,
     "interval": 3600000,
     "enabled": false
+  },
+  "lorawan": {
+    "enabled": false,
+    "activation_mode": "OTAA",
+    "region": "US915",
+    "device_class": "A",
+    "dev_eui": "0000000000000000",
+    "app_eui": "0000000000000000",
+    "app_key": "00000000000000000000000000000000",
+    "dev_addr": "00000000",
+    "nwk_s_key": "00000000000000000000000000000000",
+    "app_s_key": "00000000000000000000000000000000",
+    "adr_enabled": true,
+    "confirmed_uplinks": false,
+    "data_rate": 0,
+    "tx_power": 14,
+    "uplink_interval": 300,
+    "pins": {
+      "miso": 19,
+      "mosi": 27,
+      "sck": 5,
+      "nss": 18,
+      "rst": 14,
+      "dio0": 26,
+      "dio1": 33,
+      "dio2": 32
+    }
   }
 }

@@ -7,12 +7,13 @@
 WebServerManager::WebServerManager() : server(80), ws("/ws"), otaUploadInProgress(false) {
 }
 
-void WebServerManager::begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SensorManager* sensor, NTPManager* ntp, SemaphoreHandle_t* mutex) {
+void WebServerManager::begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SensorManager* sensor, NTPManager* ntp, LoRaWANManager* lorawan, SemaphoreHandle_t* mutex) {
     this->spiffsManager = spiffs;
     this->mqttManager = mqtt;
     this->oledManager = oled;
     this->sensorManager = sensor;
     this->ntpManager = ntp;
+    this->lorawanManager = lorawan;
     this->spiffsMutex = mutex;
 
     // Carregar credenciais web do config.json
@@ -546,6 +547,32 @@ void WebServerManager::setupRoutes() {
         }
     );
     server.on("/api/ntp/time", HTTP_GET, [this](AsyncWebServerRequest *request) { handleNTPTime(request); });
+
+    // LoRaWAN endpoints
+    server.on("/lorawan", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        if (!checkAuth(request)) return;
+        serveStaticFile(request, "/web/lorawan.html", "text/html");
+    });
+    server.on("/lorawan.js", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        serveStaticFile(request, "/web/lorawan.js", "application/javascript");
+    });
+    server.on("/api/lorawan/config", HTTP_GET, [this](AsyncWebServerRequest *request) { handleLoRaWANConfigGet(request); });
+    server.on("/api/lorawan/config", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+        [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+            handleLoRaWANConfigPost(request, data, len, index, total);
+        }
+    );
+    server.on("/api/lorawan/status", HTTP_GET, [this](AsyncWebServerRequest *request) { handleLoRaWANStatus(request); });
+    server.on("/api/lorawan/join", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+        [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+            handleLoRaWANJoin(request, data, len, index, total);
+        }
+    );
+    server.on("/api/lorawan/uplink", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL,
+        [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+            handleLoRaWANUplink(request, data, len, index, total);
+        }
+    );
 
     // Authentication endpoints
     server.on("/api/auth/status", HTTP_GET, [this](AsyncWebServerRequest *request) { handleAuthStatus(request); });
@@ -1478,6 +1505,203 @@ void WebServerManager::handleNTPTime(AsyncWebServerRequest *request) {
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
+}
+
+// ===== LoRaWAN Handlers =====
+
+void WebServerManager::handleLoRaWANConfigGet(AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
+
+    if (!lorawanManager) {
+        request->send(500, "application/json", "{\"error\":\"LoRaWAN manager not initialized\"}");
+        return;
+    }
+
+    // Get current configuration
+    LoRaWANManager::LoRaWANConfig config = lorawanManager->getConfig();
+
+    // Create JSON response
+    StaticJsonDocument<1024> doc;
+
+    doc["enabled"] = config.enabled;
+    doc["activation_mode"] = (config.activation_mode == OTAA) ? "OTAA" : "ABP";
+    doc["region"] = config.region;
+
+    const char* deviceClass = "A";
+    if (config.device_class == CLASS_B) deviceClass = "B";
+    else if (config.device_class == CLASS_C) deviceClass = "C";
+    doc["device_class"] = deviceClass;
+
+    // OTAA parameters
+    doc["dev_eui"] = LoRaWANManager::bytesToHex(config.dev_eui, LORAWAN_DEV_EUI_LEN);
+    doc["app_eui"] = LoRaWANManager::bytesToHex(config.app_eui, LORAWAN_APP_EUI_LEN);
+    doc["app_key"] = LoRaWANManager::bytesToHex(config.app_key, LORAWAN_APP_KEY_LEN);
+
+    // ABP parameters
+    doc["dev_addr"] = LoRaWANManager::bytesToHex(config.dev_addr, LORAWAN_DEV_ADDR_LEN);
+    doc["nwk_s_key"] = LoRaWANManager::bytesToHex(config.nwk_s_key, LORAWAN_SESSION_KEY_LEN);
+    doc["app_s_key"] = LoRaWANManager::bytesToHex(config.app_s_key, LORAWAN_SESSION_KEY_LEN);
+
+    // Advanced settings
+    doc["adr_enabled"] = config.adr_enabled;
+    doc["confirmed_uplinks"] = config.confirmed_uplinks;
+    doc["data_rate"] = config.data_rate;
+    doc["tx_power"] = config.tx_power;
+    doc["uplink_interval"] = config.uplink_interval;
+
+    // Pin configuration
+    JsonObject pins = doc.createNestedObject("pins");
+    pins["miso"] = config.pins.miso;
+    pins["mosi"] = config.pins.mosi;
+    pins["sck"] = config.pins.sck;
+    pins["nss"] = config.pins.nss;
+    pins["rst"] = config.pins.rst;
+    pins["dio0"] = config.pins.dio0;
+    pins["dio1"] = config.pins.dio1;
+    pins["dio2"] = config.pins.dio2;
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+}
+
+void WebServerManager::handleLoRaWANConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    if (!checkAuth(request)) return;
+
+    if (!lorawanManager) {
+        request->send(500, "application/json", "{\"error\":\"LoRaWAN manager not initialized\"}");
+        return;
+    }
+
+    if (index == 0) {
+        // Parse incoming JSON
+        StaticJsonDocument<1024> doc;
+        if (deserializeJson(doc, data, len)) {
+            request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+            return;
+        }
+
+        // Create temporary doc with lorawan section for loadConfig
+        StaticJsonDocument<1536> tempDoc;
+        tempDoc["lorawan"] = doc;
+
+        // Apply configuration to manager
+        if (!lorawanManager->loadConfig(tempDoc)) {
+            request->send(500, "application/json", "{\"error\":\"Failed to apply configuration\"}");
+            return;
+        }
+
+        // Save to config.json
+        MutexGuard guard(*spiffsMutex, 5000, "loraConfigSave");
+        if (!guard.acquired()) {
+            request->send(503, "application/json", "{\"error\":\"System busy\"}");
+            return;
+        }
+
+        File configFile = LittleFS.open("/config.json", "r");
+        StaticJsonDocument<2048> configDoc;
+        if (configFile) {
+            deserializeJson(configDoc, configFile);
+            configFile.close();
+        }
+
+        lorawanManager->saveConfig(configDoc);
+
+        configFile = LittleFS.open("/config.json", "w");
+        if (!configFile) {
+            request->send(500, "application/json", "{\"error\":\"Failed to save configuration\"}");
+            return;
+        }
+
+        serializeJson(configDoc, configFile);
+        configFile.close();
+        request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Configuration saved\"}");
+    }
+}
+
+void WebServerManager::handleLoRaWANStatus(AsyncWebServerRequest *request) {
+    if (!checkAuth(request)) return;
+
+    if (!lorawanManager) {
+        request->send(500, "application/json", "{\"error\":\"LoRaWAN manager not initialized\"}");
+        return;
+    }
+
+    // Get current status
+    LoRaWANManager::LoRaWANStatus status = lorawanManager->getStatus();
+
+    // Create JSON response
+    StaticJsonDocument<512> doc;
+
+    doc["enabled"] = status.enabled;
+    doc["joined"] = status.joined;
+    doc["joining"] = status.joining;
+    doc["uplink_count"] = status.uplink_count;
+    doc["downlink_count"] = status.downlink_count;
+    doc["last_rssi"] = status.last_rssi;
+    doc["last_snr"] = status.last_snr;
+    doc["data_rate"] = status.data_rate;
+    doc["last_uplink_time"] = status.last_uplink_time;
+    doc["message"] = status.message;
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+}
+
+void WebServerManager::handleLoRaWANJoin(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    if (!checkAuth(request)) return;
+
+    if (!lorawanManager) {
+        request->send(500, "application/json", "{\"error\":\"LoRaWAN manager not initialized\"}");
+        return;
+    }
+
+    // Start join procedure
+    bool success = lorawanManager->join();
+
+    if (success) {
+        request->send(200, "application/json", "{\"message\":\"Join successful\"}");
+    } else {
+        request->send(500, "application/json", "{\"error\":\"Join failed\"}");
+    }
+}
+
+void WebServerManager::handleLoRaWANUplink(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    if (!checkAuth(request)) return;
+
+    if (!lorawanManager) {
+        request->send(500, "application/json", "{\"error\":\"LoRaWAN manager not initialized\"}");
+        return;
+    }
+
+    // Parse JSON
+    StaticJsonDocument<512> doc;
+    DeserializationError error = deserializeJson(doc, (const char*)data, len);
+
+    if (error) {
+        request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+        return;
+    }
+
+    // Build payload from JSON
+    // For now, we'll just send the JSON as a string
+    String jsonStr;
+    serializeJson(doc, jsonStr);
+
+    // Convert to bytes
+    uint8_t payload[LORAWAN_MAX_PAYLOAD_SIZE];
+    size_t payloadLen = min((size_t)jsonStr.length(), (size_t)LORAWAN_MAX_PAYLOAD_SIZE);
+    memcpy(payload, jsonStr.c_str(), payloadLen);
+
+    // Send uplink
+    bool success = lorawanManager->sendUplink(payload, payloadLen, false);
+
+    if (success) {
+        request->send(200, "application/json", "{\"message\":\"Uplink sent successfully\"}");
+    } else {
+        request->send(500, "application/json", "{\"error\":\"Failed to send uplink\"}");
+    }
 }
 
 void WebServerManager::handleOTA(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {

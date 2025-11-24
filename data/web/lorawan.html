@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuração LoRaWAN - ESP32</title>
+    <link rel="stylesheet" href="unified.css">
+</head>
+<body>
+    <div class="container">
+        <div id="header-placeholder"></div>
+
+        <main>
+            <!-- Status Section -->
+            <section class="status-section">
+                <div class="status-card" id="lorawan-status-card">
+                    <div class="status-icon" id="lorawan-status-icon">📡</div>
+                    <div class="status-info">
+                        <h2>Status LoRaWAN</h2>
+                        <div class="status-value" id="lorawan-status">Verificando...</div>
+                        <div class="uptime" id="lorawan-status-detail">Aguarde...</div>
+                    </div>
+                    <div class="refresh-btn" onclick="checkLoRaWANStatus()">
+                        <span class="refresh-icon">🔄</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Configuration Section -->
+            <section class="info-section">
+                <h2>⚙️ Configuração LoRaWAN</h2>
+
+                <form id="lorawan-config-form">
+                    <!-- Enable/Disable LoRaWAN -->
+                    <div class="toggle-container" style="margin-bottom: 20px;">
+                        <div style="flex: 1;">
+                            <div class="toggle-label">Habilitar LoRaWAN</div>
+                            <div class="toggle-info">Ativar ou desativar comunicação LoRaWAN</div>
+                        </div>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="lorawan-enabled" name="enabled">
+                            <label for="lorawan-enabled">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Activation Mode -->
+                    <div class="form-group">
+                        <label for="activation-mode">Modo de Ativação *</label>
+                        <select id="activation-mode" name="activation_mode" class="form-input" required onchange="toggleActivationFields()">
+                            <option value="OTAA">OTAA (Over-The-Air Activation) - Recomendado</option>
+                            <option value="ABP">ABP (Activation By Personalization)</option>
+                        </select>
+                        <small style="color: var(--text-light);">OTAA é mais seguro e recomendado para produção</small>
+                    </div>
+
+                    <!-- Region -->
+                    <div class="form-group">
+                        <label for="region">Região / Plano de Frequência *</label>
+                        <select id="region" name="region" class="form-input" required>
+                            <option value="AS923">AS923 - Ásia</option>
+                            <option value="AS923-2">AS923-2 - Ásia</option>
+                            <option value="AS923-3">AS923-3 - Ásia</option>
+                            <option value="AS923-4">AS923-4 - Ásia</option>
+                            <option value="AU915">AU915 - Austrália</option>
+                            <option value="CN470">CN470 - China</option>
+                            <option value="CN779">CN779 - China</option>
+                            <option value="EU433">EU433 - Europa</option>
+                            <option value="EU868">EU868 - Europa</option>
+                            <option value="IN865">IN865 - Índia</option>
+                            <option value="KR920">KR920 - Coreia</option>
+                            <option value="RU864">RU864 - Rússia</option>
+                            <option value="US915" selected>US915 - América do Norte/Sul</option>
+                            <option value="ISM2400">ISM2400 - Global 2.4 GHz</option>
+                        </select>
+                    </div>
+
+                    <!-- Device Class -->
+                    <div class="form-group">
+                        <label for="device-class">Classe do Dispositivo *</label>
+                        <select id="device-class" name="device_class" class="form-input" required>
+                            <option value="A" selected>Classe A - Baixo consumo (padrão)</option>
+                            <option value="B">Classe B - Recepção programada</option>
+                            <option value="C">Classe C - Recepção contínua</option>
+                        </select>
+                        <small style="color: var(--text-light);">Classe A é ideal para dispositivos battery-powered</small>
+                    </div>
+                </form>
+            </section>
+
+            <!-- OTAA Parameters -->
+            <section class="info-section" id="otaa-section">
+                <h2>🔐 Parâmetros OTAA</h2>
+
+                <div class="form-group">
+                    <label for="dev-eui">DevEUI (Device EUI) *</label>
+                    <input type="text" id="dev-eui" name="dev_eui" class="form-input"
+                           placeholder="0000000000000000" maxlength="16" pattern="[0-9A-Fa-f]{16}" required>
+                    <small style="color: var(--text-light);">Identificador único do dispositivo (16 caracteres hex)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="app-eui">AppEUI / JoinEUI *</label>
+                    <input type="text" id="app-eui" name="app_eui" class="form-input"
+                           placeholder="0000000000000000" maxlength="16" pattern="[0-9A-Fa-f]{16}" required>
+                    <small style="color: var(--text-light);">Identificador da aplicação (16 caracteres hex)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="app-key">AppKey (Chave da Aplicação) *</label>
+                    <div class="password-input-group">
+                        <input type="password" id="app-key" name="app_key" class="form-input"
+                               placeholder="00000000000000000000000000000000" maxlength="32" pattern="[0-9A-Fa-f]{32}" required>
+                        <button type="button" class="btn-toggle-password" onclick="toggleAppKeyVisibility()">👁️</button>
+                    </div>
+                    <small style="color: var(--text-light);">Chave raiz AES-128 (32 caracteres hex) - NUNCA compartilhe!</small>
+                </div>
+            </section>
+
+            <!-- ABP Parameters -->
+            <section class="info-section" id="abp-section" style="display: none;">
+                <h2>🔑 Parâmetros ABP</h2>
+
+                <div class="form-group">
+                    <label for="dev-addr">DevAddr (Endereço do Dispositivo) *</label>
+                    <input type="text" id="dev-addr" name="dev_addr" class="form-input"
+                           placeholder="00000000" maxlength="8" pattern="[0-9A-Fa-f]{8}">
+                    <small style="color: var(--text-light);">Endereço de rede (8 caracteres hex)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="nwk-s-key">NwkSKey (Chave de Sessão de Rede) *</label>
+                    <div class="password-input-group">
+                        <input type="password" id="nwk-s-key" name="nwk_s_key" class="form-input"
+                               placeholder="00000000000000000000000000000000" maxlength="32" pattern="[0-9A-Fa-f]{32}">
+                        <button type="button" class="btn-toggle-password" onclick="toggleNwkKeyVisibility()">👁️</button>
+                    </div>
+                    <small style="color: var(--text-light);">Chave de sessão de rede AES-128 (32 caracteres hex)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="app-s-key">AppSKey (Chave de Sessão da Aplicação) *</label>
+                    <div class="password-input-group">
+                        <input type="password" id="app-s-key" name="app_s_key" class="form-input"
+                               placeholder="00000000000000000000000000000000" maxlength="32" pattern="[0-9A-Fa-f]{32}">
+                        <button type="button" class="btn-toggle-password" onclick="toggleAppSKeyVisibility()">👁️</button>
+                    </div>
+                    <small style="color: var(--text-light);">Chave de sessão da aplicação AES-128 (32 caracteres hex)</small>
+                </div>
+            </section>
+
+            <!-- Advanced Settings -->
+            <section class="info-section">
+                <h2>🔧 Configurações Avançadas</h2>
+
+                <!-- ADR -->
+                <div class="toggle-container" style="margin-bottom: 20px;">
+                    <div style="flex: 1;">
+                        <div class="toggle-label">ADR (Adaptive Data Rate)</div>
+                        <div class="toggle-info">Permite que o servidor otimize a taxa de dados automaticamente</div>
+                    </div>
+                    <div class="toggle-switch">
+                        <input type="checkbox" id="adr-enabled" name="adr_enabled" checked>
+                        <label for="adr-enabled">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Confirmed Uplinks -->
+                <div class="toggle-container" style="margin-bottom: 20px;">
+                    <div style="flex: 1;">
+                        <div class="toggle-label">Uplinks Confirmados</div>
+                        <div class="toggle-info">Solicita confirmação do servidor para cada mensagem (consome mais energia)</div>
+                    </div>
+                    <div class="toggle-switch">
+                        <input type="checkbox" id="confirmed-uplinks" name="confirmed_uplinks">
+                        <label for="confirmed-uplinks">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="data-rate">Taxa de Dados (Data Rate)</label>
+                    <select id="data-rate" name="data_rate" class="form-input">
+                        <option value="0" selected>DR0 - Mais alcance, menor velocidade</option>
+                        <option value="1">DR1</option>
+                        <option value="2">DR2</option>
+                        <option value="3">DR3 - Balanceado</option>
+                        <option value="4">DR4</option>
+                        <option value="5">DR5 - Menor alcance, maior velocidade</option>
+                    </select>
+                    <small style="color: var(--text-light);">Ignorado se ADR estiver habilitado</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="tx-power">Potência TX (dBm)</label>
+                    <input type="number" id="tx-power" name="tx_power" class="form-input"
+                           value="14" min="2" max="20" step="1">
+                    <small style="color: var(--text-light);">Potência de transmissão (2-20 dBm, padrão: 14)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="uplink-interval">Intervalo de Uplink (segundos)</label>
+                    <input type="number" id="uplink-interval" name="uplink_interval" class="form-input"
+                           value="300" min="30" max="86400" step="1">
+                    <small style="color: var(--text-light);">Intervalo entre transmissões (30-86400 segundos)</small>
+                </div>
+            </section>
+
+            <!-- Pin Configuration -->
+            <section class="info-section">
+                <h2>📌 Configuração de Pinos SX1276</h2>
+
+                <div class="cards-grid">
+                    <div class="form-group">
+                        <label for="pin-miso">MISO</label>
+                        <input type="number" id="pin-miso" name="miso" class="form-input" value="19" min="0" max="39">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pin-mosi">MOSI</label>
+                        <input type="number" id="pin-mosi" name="mosi" class="form-input" value="27" min="0" max="39">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pin-sck">SCK</label>
+                        <input type="number" id="pin-sck" name="sck" class="form-input" value="5" min="0" max="39">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pin-nss">NSS (CS)</label>
+                        <input type="number" id="pin-nss" name="nss" class="form-input" value="18" min="0" max="39">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pin-rst">RST</label>
+                        <input type="number" id="pin-rst" name="rst" class="form-input" value="14" min="0" max="39">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pin-dio0">DIO0</label>
+                        <input type="number" id="pin-dio0" name="dio0" class="form-input" value="26" min="0" max="39">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pin-dio1">DIO1</label>
+                        <input type="number" id="pin-dio1" name="dio1" class="form-input" value="33" min="0" max="39">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pin-dio2">DIO2</label>
+                        <input type="number" id="pin-dio2" name="dio2" class="form-input" value="32" min="0" max="39">
+                    </div>
+                </div>
+            </section>
+
+            <!-- Action Buttons -->
+            <section class="info-section">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-primary" onclick="saveLoRaWANConfig()" style="flex: 1;">
+                        💾 Salvar Configuração
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="loadConfig()">
+                        🔄 Recarregar
+                    </button>
+                    <button type="button" class="btn btn-success" onclick="testJoin()">
+                        🔌 Testar Join
+                    </button>
+                    <button type="button" class="btn btn-warning" onclick="sendTestUplink()">
+                        📤 Enviar Teste
+                    </button>
+                </div>
+            </section>
+
+            <!-- Information Section -->
+            <section class="info-section">
+                <h2>ℹ️ Informações LoRaWAN</h2>
+                <div class="info-box">
+                    <p><strong>LoRaWAN</strong> é um protocolo de rede de longa distância e baixo consumo para IoT.</p>
+                    <ul>
+                        <li><strong>OTAA</strong>: Dispositivo negocia chaves com servidor (mais seguro)</li>
+                        <li><strong>ABP</strong>: Chaves pré-configuradas no dispositivo (menos seguro)</li>
+                        <li><strong>DevEUI</strong>: Identificador único global do dispositivo</li>
+                        <li><strong>AppKey</strong>: Chave raiz para derivar chaves de sessão (OTAA)</li>
+                        <li><strong>Classe A</strong>: Menor consumo, recebe apenas após transmitir</li>
+                        <li><strong>ChirpStack</strong>: Servidor de rede compatível com este dispositivo</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Error Section -->
+            <section class="error-section" id="error-section" style="display: none;">
+                <div class="error-banner" id="error-banner">
+                    <span class="error-icon">❌</span>
+                    <span class="error-message" id="error-message"></span>
+                    <button class="error-close" onclick="closeError()">×</button>
+                </div>
+            </section>
+
+            <!-- Success Section -->
+            <section class="success-section" id="success-section" style="display: none;">
+                <div class="success-card">
+                    <div class="success-icon">✅</div>
+                    <div class="success-content">
+                        <h3>Sucesso!</h3>
+                        <p id="success-message"></p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <div id="footer-placeholder"></div>
+    </div>
+
+    <script src="header.js"></script>
+    <script>
+        loadHeader('📡 LoRaWAN');
+    </script>
+    <script src="lorawan.js"></script>
+    <script src="footer.js"></script>
+</body>
+</html>

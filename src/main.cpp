@@ -25,6 +25,7 @@
 #include "oled_manager.h"
 #include "sensor_manager.h"
 #include "ntp_manager.h"
+#include "lorawan_manager.h"
 
 // Global objects
 WebServerManager webServerManager;
@@ -33,6 +34,7 @@ MQTTManager mqttManager;
 OLEDManager oledManager;
 SensorManager sensorManager;
 NTPManager ntpManager;
+LoRaWANManager lorawanManager;
 
 // Mutex for SPIFFS access (prevents concurrent access issues)
 SemaphoreHandle_t spiffsMutex = NULL;
@@ -146,8 +148,20 @@ void setup() {
     log("No temperature/humidity sensor detected");
   }
 
+  // Setup LoRaWAN (SX1276 radio via SPI)
+  if (lorawanManager.begin()) {
+    LoRaWANManager::LoRaWANConfig loraCfg = lorawanManager.getConfig();
+    if (loraCfg.enabled) {
+      log("LoRaWAN radio initialized");
+    } else {
+      log("LoRaWAN initialized but disabled in config");
+    }
+  } else {
+    log("LoRaWAN radio not available");
+  }
+
   // Setup web server
-  webServerManager.begin(&spiffsManager, &mqttManager, &oledManager, &sensorManager, &ntpManager, &spiffsMutex);
+  webServerManager.begin(&spiffsManager, &mqttManager, &oledManager, &sensorManager, &ntpManager, &lorawanManager, &spiffsMutex);
 
   log("\n=== System Ready ===");
   Serial.print("Web interface: http://");
@@ -200,6 +214,9 @@ void loop() {
 
   // Sensor update (auto-reads at configured interval)
   sensorManager.update();
+
+  // LoRaWAN update (process events, handle downlinks, manage uplink timing)
+  lorawanManager.update();
 
   // Publish system status to MQTT periodically (only if connected to internet)
   if (wifiConnectedToInternet) {
@@ -340,6 +357,9 @@ bool loadConfig() {
 
   // Load NTP configuration
   ntpManager.loadConfig(doc);
+
+  // Load LoRaWAN configuration
+  lorawanManager.loadConfig(doc);
 
   log("Configuration loaded from SPIFFS");
   return true;

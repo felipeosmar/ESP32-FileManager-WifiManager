@@ -10,6 +10,7 @@
 #include "oled_manager.h"
 #include "sensor_manager.h"
 #include "ntp_manager.h"
+#include "lorawan_manager.h"
 #include "auth_manager.h"
 #include "raii_guards.h"
 #include <AsyncWebSocket.h>
@@ -17,7 +18,7 @@
 class WebServerManager {
 public:
     WebServerManager();
-    void begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SensorManager* sensor, NTPManager* ntp, SemaphoreHandle_t* spiffsMutex);
+    void begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManager* oled, SensorManager* sensor, NTPManager* ntp, LoRaWANManager* lorawan, SemaphoreHandle_t* spiffsMutex);
     void loop();
     void broadcastLog(const String& message);
 
@@ -29,6 +30,7 @@ private:
     OLEDManager* oledManager;
     SensorManager* sensorManager;
     NTPManager* ntpManager;
+    LoRaWANManager* lorawanManager;
     SemaphoreHandle_t* spiffsMutex;
     
     bool otaUploadInProgress;
@@ -82,6 +84,12 @@ private:
     void handleNTPConfigGet(AsyncWebServerRequest *request);
     void handleNTPConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
     void handleNTPTime(AsyncWebServerRequest *request);
+
+    void handleLoRaWANConfigGet(AsyncWebServerRequest *request);
+    void handleLoRaWANConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+    void handleLoRaWANStatus(AsyncWebServerRequest *request);
+    void handleLoRaWANJoin(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
+    void handleLoRaWANUplink(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
 
     void handleAuthStatus(AsyncWebServerRequest *request);
     void handleChangePassword(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
