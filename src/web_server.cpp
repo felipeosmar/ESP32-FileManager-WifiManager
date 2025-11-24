@@ -33,18 +33,20 @@ void WebServerManager::begin(SPIFFSManager* spiffs, MQTTManager* mqtt, OLEDManag
 }
 
 bool WebServerManager::checkAuth(AsyncWebServerRequest *request) {
-    Serial.println("=== checkAuth() CALLED ===");
+    // Serial.println("=== checkAuth() CALLED ===");
 
     // Extrair credenciais da requisição HTTP Basic Auth
     if (!request->hasHeader("Authorization")) {
-        Serial.println("No Authorization header - requesting authentication");
-        request->requestAuthentication();
+        Serial.println("No Authorization header - requesting Basic authentication");
+        // Use Basic authentication instead of Digest (default)
+        request->requestAuthentication(NULL, false);  // NULL realm, false = Basic auth
         return false;
     }
 
     String authHeader = request->header("Authorization");
     if (!authHeader.startsWith("Basic ")) {
-        request->requestAuthentication();
+        Serial.println("Not Basic auth - requesting Basic authentication");
+        request->requestAuthentication(NULL, false);  // NULL realm, false = Basic auth
         return false;
     }
 
@@ -59,7 +61,7 @@ bool WebServerManager::checkAuth(AsyncWebServerRequest *request) {
 
     if (inputLen > MAX_CREDENTIALS_SIZE * 4 / 3) {  // Validação antes de alocar
         Serial.printf("Auth: Input too large (%d bytes), rejecting\n", inputLen);
-        request->requestAuthentication();
+        request->requestAuthentication(NULL, false);
         return false;
     }
 
@@ -68,7 +70,7 @@ bool WebServerManager::checkAuth(AsyncWebServerRequest *request) {
     int decodedLen = (inputLen * 3) / 4;
 
     if (decodedLen >= (int)MAX_CREDENTIALS_SIZE) {  // Double-check
-        request->requestAuthentication();
+        request->requestAuthentication(NULL, false);
         return false;
     }
 
@@ -92,7 +94,7 @@ bool WebServerManager::checkAuth(AsyncWebServerRequest *request) {
     // Encontrar separador ':' diretamente em decoded
     char* separator = strchr(decoded, ':');
     if (separator == nullptr) {
-        request->requestAuthentication();
+        request->requestAuthentication(NULL, false);
         return false;
     }
 
@@ -102,13 +104,13 @@ bool WebServerManager::checkAuth(AsyncWebServerRequest *request) {
     const char* password = separator + 1;
 
     // Debug: mostrar credenciais recebidas
-    Serial.printf("Auth attempt - Username: '%s', Password: '%s'\n", username, password);
-    Serial.printf("Expected - Username: '%s', Hash: '%s'\n", webUsername.c_str(), webPasswordHash.c_str());
+    // Serial.printf("Auth attempt - Username: '%s', Password: '%s'\n", username, password);
+    // Serial.printf("Expected - Username: '%s', Hash: '%s'\n", webUsername.c_str(), webPasswordHash.c_str());
 
     // Validar username e hash de senha
     if (strcmp(username, webUsername.c_str()) != 0) {
         Serial.printf("Auth FAILED: Username mismatch (got '%s', expected '%s')\n", username, webUsername.c_str());
-        request->requestAuthentication();
+        request->requestAuthentication(NULL, false);
         return false;
     }
 
@@ -122,11 +124,11 @@ bool WebServerManager::checkAuth(AsyncWebServerRequest *request) {
             Serial.printf("Expected hash:          '%s'\n", webPasswordHash.c_str());
         }
 
-        request->requestAuthentication();
+        request->requestAuthentication(NULL, false);
         return false;
     }
 
-    Serial.println("Auth SUCCESS!");
+    // Serial.println("Auth SUCCESS!");
     return true;
 }
 
@@ -259,6 +261,9 @@ bool WebServerManager::saveWebCredentials(const String& username, const String& 
 }
 
 bool WebServerManager::isValidPath(const String& path) {
+    // Debug path validation
+    // Serial.printf("Validating path: '%s' (len: %d)\n", path.c_str(), path.length());
+
     // Verificar se o path está vazio
     if (path.length() == 0) {
         Serial.println("Path Traversal bloqueado: path vazio");
@@ -272,11 +277,8 @@ bool WebServerManager::isValidPath(const String& path) {
         return false;
     }
 
-    // Verificar se contém caracteres nulos (null byte injection)
-    if (path.indexOf('\0') >= 0) {
-        Serial.println("Path Traversal bloqueado: null byte detectado");
-        return false;
-    }
+    // REMOVIDO: Verificação de null byte causando falsos positivos
+    // if (path.indexOf('\0') >= 0) { ... }
 
     // Verificar se começa com /
     if (!path.startsWith("/")) {
@@ -297,13 +299,16 @@ bool WebServerManager::isValidPath(const String& path) {
         return false;
     }
 
-    // Validar caracteres permitidos (alphanumerico, /, -, _, .)
+    // Validar caracteres permitidos (alphanumerico, /, -, _, ., espaço)
     for (size_t i = 0; i < path.length(); i++) {
         char c = path.charAt(i);
-        if (!isalnum(c) && c != '/' && c != '-' && c != '_' && c != '.') {
+        // Adicionado suporte a espaço (' ')
+        if (!isalnum(c) && c != '/' && c != '-' && c != '_' && c != '.' && c != ' ') {
             Serial.print("Path Traversal bloqueado: caractere invalido '");
             Serial.print(c);
-            Serial.print("' em: ");
+            Serial.print("' (0x");
+            Serial.print((int)c, HEX);
+            Serial.print(") em: ");
             Serial.println(path);
             return false;
         }

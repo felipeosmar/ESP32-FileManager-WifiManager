@@ -3,37 +3,37 @@ let uploadInProgress = false;
 let selectedFile = null;
 
 // Initialize event listeners
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const uploadZone = document.getElementById('uploadZone');
     const firmwareInput = document.getElementById('firmwareInput');
 
     // Click to select file
-    uploadZone.addEventListener('click', function() {
+    uploadZone.addEventListener('click', function () {
         if (!uploadInProgress) {
             firmwareInput.click();
         }
     });
 
     // File input change
-    firmwareInput.addEventListener('change', function(e) {
+    firmwareInput.addEventListener('change', function (e) {
         if (e.target.files.length > 0) {
             handleFileSelection(e.target.files[0]);
         }
     });
 
     // Drag and drop events
-    uploadZone.addEventListener('dragover', function(e) {
+    uploadZone.addEventListener('dragover', function (e) {
         e.preventDefault();
         if (!uploadInProgress) {
             uploadZone.classList.add('dragging');
         }
     });
 
-    uploadZone.addEventListener('dragleave', function() {
+    uploadZone.addEventListener('dragleave', function () {
         uploadZone.classList.remove('dragging');
     });
 
-    uploadZone.addEventListener('drop', function(e) {
+    uploadZone.addEventListener('drop', function (e) {
         e.preventDefault();
         uploadZone.classList.remove('dragging');
 
@@ -68,9 +68,9 @@ function handleFileSelection(file) {
 
     // Show confirmation
     const confirmMsg = `Confirmar atualização do firmware?\n\n` +
-                      `Arquivo: ${file.name}\n` +
-                      `Tamanho: ${formatSize(file.size)}\n\n` +
-                      `O dispositivo será reiniciado após a atualização.`;
+        `Arquivo: ${file.name}\n` +
+        `Tamanho: ${formatSize(file.size)}\n\n` +
+        `O dispositivo será reiniciado após a atualização.`;
 
     if (confirm(confirmMsg)) {
         uploadFirmware(file);
@@ -103,7 +103,7 @@ async function uploadFirmware(file) {
     const xhr = new XMLHttpRequest();
 
     // Progress tracking
-    xhr.upload.addEventListener('progress', function(e) {
+    xhr.upload.addEventListener('progress', function (e) {
         if (e.lengthComputable) {
             const percent = Math.round((e.loaded / e.total) * 100);
             updateProgress(percent);
@@ -117,7 +117,7 @@ async function uploadFirmware(file) {
     });
 
     // Upload complete
-    xhr.addEventListener('load', function() {
+    xhr.addEventListener('load', function () {
         console.log('Upload complete - Status:', xhr.status);
         console.log('Response text:', xhr.responseText);
 
@@ -153,7 +153,7 @@ async function uploadFirmware(file) {
     });
 
     // Upload error
-    xhr.addEventListener('error', function(e) {
+    xhr.addEventListener('error', function (e) {
         console.error('XHR error event:', e);
         console.error('XHR state:', xhr.readyState);
         console.error('XHR status:', xhr.status);
@@ -170,13 +170,13 @@ async function uploadFirmware(file) {
     });
 
     // Upload timeout
-    xhr.addEventListener('timeout', function() {
+    xhr.addEventListener('timeout', function () {
         console.error('XHR timeout - upload took too long');
         handleUploadError('Timeout: o upload demorou muito tempo');
     });
 
     // Upload abort
-    xhr.addEventListener('abort', function() {
+    xhr.addEventListener('abort', function () {
         console.error('XHR aborted');
         handleUploadError('Upload cancelado');
     });
@@ -305,7 +305,7 @@ function startReconnectPolling() {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 1500);
 
-            const response = await fetch('/api/health/status', {
+            const response = await fetch('/api/status', {
                 method: 'GET',
                 cache: 'no-cache',
                 signal: controller.signal

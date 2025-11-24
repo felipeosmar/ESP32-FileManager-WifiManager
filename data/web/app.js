@@ -7,7 +7,7 @@ let isConnected = false;
 let healthData = null;
 
 // Initialize
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     console.log('ESP32 File Manager Interface Loaded');
 
     // Update connection status periodically
@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function checkConnection() {
     try {
-        const response = await fetch('/api/health/status', {
+        const response = await fetch('/api/status', {
             method: 'GET',
             cache: 'no-cache'
         });

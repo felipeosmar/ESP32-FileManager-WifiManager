@@ -47,6 +47,13 @@ SemaphoreHandle_t i2cMutex = NULL;
 // MQTT status publishing
 unsigned long lastStatusPublish = 0;
 
+// OLED display update timing
+unsigned long lastOLEDUpdate = 0;
+const unsigned long OLED_UPDATE_INTERVAL = 2000; // Update OLED every 2 seconds
+
+// WiFi connection status
+bool wifiConnectedToInternet = false;
+
 // Configuration
 struct Config {
   char ssid[32];
@@ -110,13 +117,19 @@ void setup() {
   // Setup WiFi
   setupWiFi();
 
-  // Initialize NTP
-  timeClient.begin();
-  log("NTP Client started");
+  // Initialize NTP (only if connected to internet)
+  if (wifiConnectedToInternet) {
+    timeClient.begin();
+    log("NTP Client started");
+  } else {
+    log("NTP Client skipped (no internet connection)");
+  }
 
-  // Setup MQTT (after WiFi is connected)
-  if (mqttManager.begin()) {
+  // Setup MQTT (only if connected to internet)
+  if (wifiConnectedToInternet && mqttManager.begin()) {
     mqttManager.connect();
+  } else if (!wifiConnectedToInternet) {
+    log("MQTT skipped (no internet connection)");
   }
 
   // Setup OLED Display
@@ -149,51 +162,62 @@ void setup() {
 }
 
 void loop() {
-  // Update NTP
-  timeClient.update();
-  
+  // Update NTP (only if connected to internet)
+  if (wifiConnectedToInternet) {
+    timeClient.update();
+  }
+
   // Update WebServer (WebSocket)
   webServerManager.loop();
 
-  // MQTT loop - handle reconnection and message processing
-  mqttManager.loop();
+  // MQTT loop - handle reconnection and message processing (only if connected to internet)
+  if (wifiConnectedToInternet) {
+    mqttManager.loop();
+  }
 
-  // OLED display update
+  // OLED display update (rate-limited to prevent mutex contention)
   if (oledManager.isAvailable() && oledManager.getConfig().auto_update) {
-    // Update display with current system info based on mode
-    if (oledManager.getMode() == OLEDManager::MODE_SYSTEM_INFO) {
-      oledManager.showSystemInfo(WiFi.localIP().toString().c_str(),
-                                  millis() / 1000,
-                                  ESP.getFreeHeap());
-    } else if (oledManager.getMode() == OLEDManager::MODE_NETWORK_INFO) {
-      oledManager.showNetworkInfo(WiFi.SSID().c_str(),
-                                   WiFi.RSSI(),
-                                   WiFi.localIP().toString().c_str());
-    } else if (oledManager.getMode() == OLEDManager::MODE_MQTT_INFO) {
-      const MQTTManager::MQTTConfig& mqttCfg = mqttManager.getConfig();
-      oledManager.showMQTTInfo(mqttManager.isConnected(),
-                               mqttCfg.server,
-                               mqttCfg.mainTopic);
-    } else if (oledManager.getMode() == OLEDManager::MODE_SENSOR_INFO) {
-      const SensorManager::SensorConfig& sensorCfg = sensorManager.getConfig();
-      oledManager.showSensorInfo(sensorManager.isAvailable(),
-                                  sensorManager.getTemperature(),
-                                  sensorManager.getHumidity(),
-                                  sensorCfg.fahrenheit);
+    unsigned long now = millis();
+    if (now - lastOLEDUpdate >= OLED_UPDATE_INTERVAL) {
+      lastOLEDUpdate = now;
+      
+      // Update display with current system info based on mode
+      if (oledManager.getMode() == OLEDManager::MODE_SYSTEM_INFO) {
+        oledManager.showSystemInfo(WiFi.localIP().toString().c_str(),
+                                    millis() / 1000,
+                                    ESP.getFreeHeap());
+      } else if (oledManager.getMode() == OLEDManager::MODE_NETWORK_INFO) {
+        oledManager.showNetworkInfo(WiFi.SSID().c_str(),
+                                     WiFi.RSSI(),
+                                     WiFi.localIP().toString().c_str());
+      } else if (oledManager.getMode() == OLEDManager::MODE_MQTT_INFO) {
+        const MQTTManager::MQTTConfig& mqttCfg = mqttManager.getConfig();
+        oledManager.showMQTTInfo(mqttManager.isConnected(),
+                                 mqttCfg.server,
+                                 mqttCfg.mainTopic);
+      } else if (oledManager.getMode() == OLEDManager::MODE_SENSOR_INFO) {
+        const SensorManager::SensorConfig& sensorCfg = sensorManager.getConfig();
+        oledManager.showSensorInfo(sensorManager.isAvailable(),
+                                    sensorManager.getTemperature(),
+                                    sensorManager.getHumidity(),
+                                    sensorCfg.fahrenheit);
+      }
     }
   }
 
   // Sensor update (auto-reads at configured interval)
   sensorManager.update();
 
-  // Publish system status to MQTT periodically
-  unsigned long now = millis();
-  const MQTTManager::MQTTConfig& mqttConfig = mqttManager.getConfig();
-  unsigned long publishInterval = mqttConfig.publish_interval * 1000UL;  // Convert seconds to milliseconds
+  // Publish system status to MQTT periodically (only if connected to internet)
+  if (wifiConnectedToInternet) {
+    unsigned long now = millis();
+    const MQTTManager::MQTTConfig& mqttConfig = mqttManager.getConfig();
+    unsigned long publishInterval = mqttConfig.publish_interval * 1000UL;  // Convert seconds to milliseconds
 
-  if (mqttManager.isConnected() && (now - lastStatusPublish >= publishInterval)) {
-    publishSystemStatus();
-    lastStatusPublish = now;
+    if (mqttManager.isConnected() && (now - lastStatusPublish >= publishInterval)) {
+      publishSystemStatus();
+      lastStatusPublish = now;
+    }
   }
 
   // Small delay to prevent watchdog issues
@@ -205,13 +229,18 @@ void setupWiFi() {
 
   if (config.apMode) {
     // Access Point mode
+    log("Starting in AP mode (configured)");
+    WiFi.mode(WIFI_AP);
     WiFi.softAP(config.ssid, config.password);
     Serial.print("AP Mode - SSID: ");
     Serial.println(config.ssid);
     Serial.print("IP Address: ");
     Serial.println(WiFi.softAPIP());
+    wifiConnectedToInternet = false;
   } else {
     // Station mode
+    log("Attempting to connect to WiFi...");
+    WiFi.mode(WIFI_STA);
     WiFi.begin(config.ssid, config.password);
     Serial.print("Connecting to WiFi");
 
@@ -226,11 +255,22 @@ void setupWiFi() {
       Serial.println("\nConnected!");
       Serial.print("IP Address: ");
       Serial.println(WiFi.localIP());
+      wifiConnectedToInternet = true;
     } else {
       Serial.println("\nFailed to connect, switching to AP mode");
+
+      // IMPORTANT: Disconnect from station mode completely before starting AP
+      WiFi.disconnect(true);
+      delay(100);
+
+      // Switch to AP mode only
+      WiFi.mode(WIFI_AP);
       WiFi.softAP(WIFI_SSID_DEFAULT, WIFI_PASS_DEFAULT);
       Serial.print("AP IP: ");
       Serial.println(WiFi.softAPIP());
+      wifiConnectedToInternet = false;
+
+      log("Now in fallback AP mode - no internet connection");
     }
   }
 }

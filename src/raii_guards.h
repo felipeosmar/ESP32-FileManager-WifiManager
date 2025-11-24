@@ -110,7 +110,7 @@ public:
 
             if (wasAcquired) {
                 if (name) {
-                    Serial.printf("Mutex: Acquired '%s'\n", name);
+                    //Serial.printf("Mutex: Acquired '%s'\n", name);
                 }
             } else {
                 if (name) {
@@ -126,7 +126,7 @@ public:
         if (wasAcquired && mutex != nullptr) {
             xSemaphoreGive(mutex);
             if (name) {
-                Serial.printf("Mutex: Released '%s'\n", name);
+                //Serial.printf("Mutex: Released '%s'\n", name);
             }
         }
     }
